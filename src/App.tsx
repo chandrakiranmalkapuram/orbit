@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { OrbitLogo } from './components/OrbitLogo';
 import { CATEGORY_LABELS } from './lib/actions';
 import type {
   ActionCategory,
@@ -238,7 +239,7 @@ export default function App() {
       {/* Movable Top Capsule */}
       <header className="floating-capsule" data-tauri-drag-region>
         <div className="drag-label" data-tauri-drag-region>
-          <span className="capsule-dot" />
+          <OrbitLogo size={16} />
           <span>ORBIT</span>
         </div>
         <div className="capsule-actions">
@@ -374,7 +375,7 @@ export default function App() {
               </>
             ) : (
               <>
-                <span className="orb-glyph">+</span>
+                <OrbitLogo size={52} className="orb-central-logo" />
                 <span className="orb-subtext">Drop Files</span>
               </>
             )}

@@ -42,32 +42,36 @@ html, body, #root {
 }
 
 .app.dark {
-  --bg-orb: rgba(20, 20, 28, 0.88);
-  --panel: rgba(26, 26, 36, 0.90);
+  --bg-orb: rgba(13, 17, 28, 0.88);
+  --panel: rgba(17, 24, 39, 0.92);
   --text: #f8fafc;
   --muted: #94a3b8;
-  --line: rgba(255, 255, 255, 0.13);
+  --line: rgba(255, 255, 255, 0.12);
   --core: rgba(255, 255, 255, 0.05);
-  --core-line: rgba(255, 255, 255, 0.18);
-  --accent: #a78bfa;
-  --accent-2: #818cf8;
-  --accent-glow: rgba(167, 139, 250, 0.40);
-  --success: #34d399;
-  --error: #f87171;
+  --core-line: rgba(255, 122, 0, 0.28);
+  --accent: #ff7a00; /* Vibrant Indian Kesari Saffron */
+  --accent-2: #ff9933; /* Surya Sunburst Saffron */
+  --accent-gold: #fbbf24; /* Temple Sun Gold */
+  --accent-blue: #2563eb; /* Ashoka Royal Sapphire */
+  --accent-glow: rgba(255, 122, 0, 0.40);
+  --success: #10b981; /* Emerald India Green */
+  --error: #ef4444;
 }
 
 .app.light {
-  --bg-orb: rgba(255, 255, 255, 0.94);
-  --panel: rgba(255, 255, 255, 0.90);
+  --bg-orb: rgba(255, 253, 248, 0.94);
+  --panel: rgba(255, 255, 255, 0.92);
   --text: #0f172a;
   --muted: #64748b;
-  --line: rgba(0, 0, 0, 0.12);
-  --core: rgba(0, 0, 0, 0.04);
-  --core-line: rgba(0, 0, 0, 0.15);
-  --accent: #7c3aed;
-  --accent-2: #6366f1;
-  --accent-glow: rgba(124, 58, 237, 0.30);
-  --success: #059669;
+  --line: rgba(0, 0, 0, 0.10);
+  --core: rgba(255, 122, 0, 0.04);
+  --core-line: rgba(255, 122, 0, 0.22);
+  --accent: #ea580c; /* Deep Surya Saffron */
+  --accent-2: #f59e0b; /* Amber Gold */
+  --accent-gold: #d97706;
+  --accent-blue: #1d4ed8;
+  --accent-glow: rgba(234, 88, 12, 0.28);
+  --success: #059669; /* Emerald Green */
   --error: #dc2626;
 }
 
@@ -265,6 +269,16 @@ button {
   color: var(--accent);
 }
 
+.orb-central-logo {
+  filter: drop-shadow(0 0 14px rgba(255, 122, 0, 0.50));
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.35s ease;
+}
+
+.orb-core:hover .orb-central-logo {
+  transform: scale(1.10) rotate(5deg);
+  filter: drop-shadow(0 0 22px rgba(255, 122, 0, 0.75));
+}
+
 .orb-glyph.done {
   color: var(--success);
 }
@@ -278,7 +292,7 @@ button {
   font-weight: 700;
   letter-spacing: 0.1em;
   color: var(--muted);
-  margin-top: 4px;
+  margin-top: 5px;
   text-transform: uppercase;
 }
 
