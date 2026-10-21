@@ -69,16 +69,41 @@ pub struct FileMetadata {
     pub actions: Vec<ActionDefinition>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectionMetadata {
+    pub files: Vec<FileMetadata>,
+    pub is_multi: bool,
+    pub total_size: u64,
+    pub summary_label: String,
+    pub actions: Vec<ActionDefinition>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionExecutionRequest {
-    pub path: String,
+    pub path: Option<String>,
+    pub paths: Option<Vec<String>>,
     pub action_id: String,
     pub quality: Option<u8>,
     pub scale_percent: Option<u32>,
     pub target_width: Option<u32>,
     pub target_height: Option<u32>,
     pub bg_color: Option<String>,
+}
+
+impl ActionExecutionRequest {
+    pub fn get_paths(&self) -> Vec<String> {
+        if let Some(ref list) = self.paths {
+            if !list.is_empty() {
+                return list.clone();
+            }
+        }
+        if let Some(ref single) = self.path {
+            return vec![single.clone()];
+        }
+        vec![]
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

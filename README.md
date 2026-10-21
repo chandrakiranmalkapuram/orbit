@@ -8,11 +8,17 @@ ORBIT is a local-first macOS desktop utility built with Tauri 2, React, TypeScri
 
 ## Key Features
 
-- **Floating Desktop Orb**: Frameless, transparent floating window with `alwaysOnTop` toggle and native macOS window dragging.
-- **Dynamic Capability Registry**: Rust-backed registry that determines genuine, valid actions based on detected magic bytes and installed local engines.
+- **Floating Desktop Orb**: Frameless, transparent floating window with `alwaysOnTop` toggle and native macOS window dragging, featuring an adaptive non-overlapping radial layout with dedicated palette drawer for many options.
+- **Dynamic Capability Registry**: Rust-backed registry that determines genuine, valid actions based on detected magic bytes, selection counts, and installed local engines.
+- **Multipage PDF Combination**:
+  - Drag 2, 5, 10, or more images (JPEG, PNG, WebP, BMP, TIFF) directly from Finder onto the orb.
+  - Automatically groups files and provides a 1-click **"Combine into one PDF"** action.
+  - Preserves exact drop order, creates 1 page per image with individual MediaBox dimensions matching aspect ratio (no distortion or stretching).
+  - Handles mixed formats, portrait and landscape orientations, and flattens alpha cleanly.
+  - Generates safe atomic output saved beside the first image (`Combined.pdf` or `Combined (2).pdf` on collision without overwriting).
 - **Comprehensive Image Conversions**:
-  - Convert between **PNG, JPEG, WebP, BMP, TIFF**, and **GIF**.
-  - **Image-to-PDF**: Pure-Rust PDF 1.4 document creation with JPEG passthrough and Deflate compression.
+  - Convert single images or batch convert between **PNG, JPEG, WebP, BMP, TIFF**, and **GIF**.
+  - **Image-to-PDF**: Pure-Rust PDF 1.4 document creation with JPEG passthrough (`/DCTDecode`) and Deflate compression (`/FlateDecode`).
   - **Alpha Flattening**: PNG/WebP with transparency are cleanly flattened onto customizable background colors for JPEG output (no black box artifacts).
 - **Image Transformations**:
   - Rotate 90°, 180°, and 270°.
@@ -26,8 +32,15 @@ ORBIT is a local-first macOS desktop utility built with Tauri 2, React, TypeScri
   - Path traversal defense (`..` rejection).
   - Symbolic link rejection.
   - Zip-bomb limits (10,000 max entries, 2 GB total extracted limit, 512 MB per-file limit).
-- **Atomic Output Safety**: Original files are never modified. Outputs are written atomically to temporary files and renamed without overwriting existing files (`file (2).png`).
-- **Contextual Parameters**: Adjust compression quality or resize scaling directly on the orb without complex modal dialogs.
+- **PDF Document Processing**:
+  - **PDF to Images**: Convert PDF page(s) to lossless PNG or standard JPEG images using macOS native `sips` rendering.
+  - **Extract Text**: Extract all text layers from PDF pages into a readable `.txt` document via pure-Rust `lopdf`.
+  - **Split Pages**: Split multipage PDFs into individual 1-page PDF files (`doc_page_1.pdf`, `doc_page_2.pdf`...).
+  - **Merge PDFs**: Drop 2 or more PDFs to merge them into a single `Combined.pdf`.
+  - **Mixed Combine**: Drop images and PDFs together to compile them into one continuous document in original drop order.
+  - **PDF Info**: Inspect PDF version, page count, and metadata.
+- **Atomic Output Safety**: Original files are never modified. Outputs are written atomically to temporary files and renamed without overwriting existing files (`file (2).png`, `Combined (2).pdf`).
+- **Contextual Parameters**: Adjust compression quality or resize scaling directly on the orb without complex modal dialogs or overlapping controls.
 - **Privacy & Offline First**: Zero cloud dependencies, zero external APIs, zero telemetry, zero analytics, zero AI models.
 
 ---
@@ -35,6 +48,8 @@ ORBIT is a local-first macOS desktop utility built with Tauri 2, React, TypeScri
 ## Genuine Capabilities vs Known Limitations
 
 ### Supported & Tested
+- Multipage PDF: Multi-image drop (JPEG, PNG, WebP, etc.) or multi-PDF drop or mixed drop ➔ Single combined PDF with N pages in original order.
+- PDF Operations: PDF ➔ PNG, PDF ➔ JPEG, PDF Text Extraction (.txt), PDF Page Splitting, PDF Info.
 - Format conversions: JPEG ➔ PNG, JPEG ➔ WebP, JPEG ➔ BMP, JPEG ➔ TIFF, JPEG ➔ PDF, PNG ➔ JPEG, PNG ➔ WebP, WebP ➔ PNG, WebP ➔ JPEG.
 - Transformations: Rotate, Flip, Grayscale, Resize, Square Crop, Strip EXIF.
 - Archives: ZIP preview and safe extraction.

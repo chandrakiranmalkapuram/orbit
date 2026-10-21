@@ -8,7 +8,7 @@ import type {
   ActionCategory,
   ActionDefinition,
   ActionExecutionRequest,
-  FileMetadata,
+  SelectionMetadata,
   OperationResult,
 } from './types/orbit';
 
@@ -22,10 +22,10 @@ function formatBytes(bytes: number) {
 
 export default function App() {
   const reduceMotion = useReducedMotion();
-  const [file, setFile] = useState<FileMetadata | null>(null);
+  const [selection, setSelection] = useState<SelectionMetadata | null>(null);
   const [stage, setStage] = useState<Stage>('idle');
   const [dragging, setDragging] = useState(false);
-  const [message, setMessage] = useState('Drop file here');
+  const [message, setMessage] = useState('Drop files here');
   const [result, setResult] = useState<OperationResult | null>(null);
   const [error, setError] = useState('');
   const [dark, setDark] = useState(true);
@@ -34,27 +34,31 @@ export default function App() {
   const [selectedParamAction, setSelectedParamAction] = useState<ActionDefinition | null>(null);
   const [qualityParam, setQualityParam] = useState(75);
   const [scaleParam, setScaleParam] = useState(50);
+  const [showAllDrawer, setShowAllDrawer] = useState(false);
   const [zipContents, setZipContents] = useState<string[] | null>(null);
 
-  const inspect = useCallback(async (path: string) => {
+  const inspect = useCallback(async (paths: string[]) => {
+    if (!paths || paths.length === 0) return;
+
     try {
       setStage('working');
       setError('');
       setResult(null);
       setZipContents(null);
       setSelectedParamAction(null);
+      setShowAllDrawer(false);
       setActiveCategory('all');
-      setMessage('Inspecting file…');
+      setMessage(paths.length === 1 ? 'Inspecting file…' : `Inspecting ${paths.length} files…`);
 
-      const detected = await invoke<FileMetadata>('inspect_file', { path });
-      setFile(detected);
+      const data = await invoke<SelectionMetadata>('inspect_selection', { paths });
+      setSelection(data);
       setStage('ready');
-      setMessage(detected.name);
+      setMessage(data.summaryLabel);
     } catch (e) {
-      setFile(null);
+      setSelection(null);
       setStage('error');
       setError(String(e));
-      setMessage('Could not inspect file');
+      setMessage('Could not inspect selection');
     }
   }, []);
 
@@ -70,7 +74,7 @@ export default function App() {
           setDragging(false);
           const paths = event.payload.paths;
           if (paths && paths.length > 0) {
-            void inspect(paths[0]);
+            void inspect(paths);
           }
         }
       })
@@ -78,7 +82,7 @@ export default function App() {
         unlisten = fn;
       })
       .catch(() => {
-        // webview event listener fallback
+        // Fallback for non-webview environments
       });
 
     return () => {
@@ -86,15 +90,17 @@ export default function App() {
     };
   }, [inspect]);
 
-  const chooseFile = async () => {
+  const chooseFiles = async () => {
     try {
       const selected = await open({
-        multiple: false,
+        multiple: true,
         directory: false,
-        title: 'Choose a file for ORBIT',
+        title: 'Choose files for ORBIT',
       });
-      if (typeof selected === 'string') {
+      if (Array.isArray(selected) && selected.length > 0) {
         void inspect(selected);
+      } else if (typeof selected === 'string') {
+        void inspect([selected]);
       }
     } catch (e) {
       setError(String(e));
@@ -102,9 +108,8 @@ export default function App() {
   };
 
   const handleActionClick = (action: ActionDefinition) => {
-    if (!file) return;
+    if (!selection) return;
 
-    // Check if this action requires parameter input first
     if (action.parameter && !selectedParamAction) {
       if (action.parameter.type === 'quality') {
         setQualityParam(action.parameter.default);
@@ -122,7 +127,7 @@ export default function App() {
     action: ActionDefinition,
     params?: { quality?: number; scalePercent?: number }
   ) => {
-    if (!file) return;
+    if (!selection || selection.files.length === 0) return;
 
     try {
       setStage('working');
@@ -130,9 +135,11 @@ export default function App() {
       setResult(null);
       setMessage(action.label);
       setSelectedParamAction(null);
+      setShowAllDrawer(false);
 
       if (action.id === 'preview-zip') {
-        const entries = await invoke<string[]>('list_zip_entries', { path: file.path });
+        const firstPath = selection.files[0].path;
+        const entries = await invoke<string[]>('list_zip_entries', { path: firstPath });
         setZipContents(entries);
         setStage('ready');
         setMessage('Archive contents');
@@ -140,19 +147,25 @@ export default function App() {
       }
 
       if (action.id === 'copy-path') {
-        await navigator.clipboard.writeText(file.path);
+        const pathsText = selection.files.map((f) => f.path).join('\n');
+        await navigator.clipboard.writeText(pathsText);
         setResult({
-          outputPaths: [file.path],
-          message: 'Copied file path to clipboard.',
+          outputPaths: selection.files.map((f) => f.path),
+          message:
+            selection.files.length === 1
+              ? 'Copied path to clipboard.'
+              : `Copied ${selection.files.length} paths to clipboard.`,
         });
         setStage('done');
         return;
       }
 
       const req: ActionExecutionRequest = {
-        path: file.path,
+        paths: selection.files.map((f) => f.path),
+        path: selection.files[0]?.path,
         actionId: action.id,
-        quality: params?.quality ?? (action.parameter?.type === 'quality' ? qualityParam : undefined),
+        quality:
+          params?.quality ?? (action.parameter?.type === 'quality' ? qualityParam : undefined),
         scalePercent:
           params?.scalePercent ??
           (action.parameter?.type === 'scale' ? scaleParam : undefined),
@@ -188,41 +201,41 @@ export default function App() {
   };
 
   const reset = () => {
-    setFile(null);
+    setSelection(null);
     setStage('idle');
     setResult(null);
     setError('');
     setZipContents(null);
     setSelectedParamAction(null);
+    setShowAllDrawer(false);
     setActiveCategory('all');
-    setMessage('Drop file here');
+    setMessage('Drop files here');
   };
 
-  // Actions available from Rust registry
-  const availableActions = useMemo(() => file?.actions ?? [], [file]);
+  const availableActions = useMemo(() => selection?.actions ?? [], [selection]);
 
-  // Categories present in the available actions
   const categories = useMemo(() => {
     const cats = new Set<ActionCategory>();
     availableActions.forEach((a) => cats.add(a.category));
     return Array.from(cats);
   }, [availableActions]);
 
-  // Actions filtered by selected category
+  // Layout math: primary radial actions
   const displayedActions = useMemo(() => {
     if (activeCategory === 'all') {
-      // If there are more than 8 actions, show the primary actions on initial view
-      if (availableActions.length > 8) {
-        return availableActions.filter((a) => a.isPrimary);
+      // Show up to 6 primary actions cleanly on the circle to guarantee zero overlap
+      const primaries = availableActions.filter((a) => a.isPrimary);
+      if (primaries.length > 0 && primaries.length <= 6) {
+        return primaries;
       }
-      return availableActions;
+      return availableActions.slice(0, 6);
     }
-    return availableActions.filter((a) => a.category === activeCategory);
+    return availableActions.filter((a) => a.category === activeCategory).slice(0, 8);
   }, [availableActions, activeCategory]);
 
   return (
     <main className={dark ? 'app dark' : 'app light'}>
-      {/* Movable Top Capsule (Finder-like glass pill) */}
+      {/* Movable Top Capsule */}
       <header className="floating-capsule" data-tauri-drag-region>
         <div className="drag-label" data-tauri-drag-region>
           <span className="capsule-dot" />
@@ -256,34 +269,34 @@ export default function App() {
         </div>
       </header>
 
-      {/* Ambient Radial Glowing Atmosphere */}
+      {/* Ambient Radial Atmosphere */}
       <div
         className={`ambient-glow ambient-center ${dragging ? 'is-dragging' : ''}`}
         aria-hidden="true"
       />
 
-      {/* Central Interactive Workspace */}
-      <section className="orbit-workspace" aria-label="ORBIT floating interface">
-        {/* Orbital Action Buttons */}
+      {/* Upper Orbital Stage */}
+      <section className="orbit-stage" aria-label="ORBIT floating interface">
+        {/* Radial Action Buttons */}
         <AnimatePresence>
           {stage === 'ready' &&
             displayedActions.map((action, i) => {
               const total = displayedActions.length;
               const angle = (-90 + (360 / total) * i) * (Math.PI / 180);
-              const radius = total > 6 ? 205 : 180;
+              const radius = 175;
               const left = `calc(50% + ${Math.cos(angle) * radius}px)`;
               const top = `calc(50% + ${Math.sin(angle) * radius}px)`;
 
               return (
                 <motion.button
                   key={action.id}
-                  className="radial-action"
+                  className={`radial-action ${action.isPrimary ? 'primary' : ''}`}
                   style={{ left, top }}
                   initial={{ opacity: 0, scale: 0.5 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.6 }}
                   transition={{
-                    duration: reduceMotion ? 0 : 0.28,
+                    duration: reduceMotion ? 0 : 0.25,
                     delay: reduceMotion ? 0 : i * 0.03,
                   }}
                   onClick={() => handleActionClick(action)}
@@ -298,11 +311,11 @@ export default function App() {
             })}
         </AnimatePresence>
 
-        {/* Central Core Glowing Orb */}
+        {/* Central Glowing Orb */}
         <motion.button
           className={`orb-core ${stage} ${dragging ? 'is-dragging' : ''} ${stage === 'working' ? 'is-working' : ''} ${stage === 'done' ? 'is-done' : ''} ${stage === 'error' ? 'is-error' : ''}`}
           onClick={() => {
-            if (stage === 'idle' || stage === 'error') void chooseFile();
+            if (stage === 'idle' || stage === 'error') void chooseFiles();
             else if (stage === 'done') reset();
           }}
           onDragOver={(e) => {
@@ -313,9 +326,15 @@ export default function App() {
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            const dropped = e.dataTransfer.files[0];
-            if (dropped && 'path' in dropped) {
-              void inspect(String((dropped as File & { path: string }).path));
+            const droppedPaths: string[] = [];
+            for (let i = 0; i < e.dataTransfer.files.length; i++) {
+              const f = e.dataTransfer.files[i];
+              if (f && 'path' in f) {
+                droppedPaths.push(String((f as File & { path: string }).path));
+              }
+            }
+            if (droppedPaths.length > 0) {
+              void inspect(droppedPaths);
             }
           }}
           aria-label="ORBIT central drop target"
@@ -334,39 +353,45 @@ export default function App() {
               <span className="orb-glyph done">✓</span>
             ) : stage === 'error' ? (
               <span className="orb-glyph error">↻</span>
-            ) : file ? (
+            ) : selection ? (
               <>
                 <span className="orb-glyph">
-                  {file.kind === 'archive'
-                    ? '▣'
-                    : file.kind === 'image'
-                      ? '◈'
-                      : file.kind === 'pdf'
-                        ? '▤'
-                        : '◉'}
+                  {selection.isMulti
+                    ? '▤'
+                    : selection.files[0]?.kind === 'pdf'
+                      ? '▤'
+                      : selection.files[0]?.kind === 'archive'
+                        ? '▣'
+                        : selection.files[0]?.kind === 'image'
+                          ? '◈'
+                          : '◉'}
                 </span>
-                <span className="orb-subtext">{file.extension}</span>
+                <span className="orb-subtext">
+                  {selection.isMulti
+                    ? `${selection.files.length} FILES`
+                    : selection.files[0]?.extension}
+                </span>
               </>
             ) : (
               <>
                 <span className="orb-glyph">+</span>
-                <span className="orb-subtext">Drop File</span>
+                <span className="orb-subtext">Drop Files</span>
               </>
             )}
           </div>
         </motion.button>
 
-        {/* Contextual Parameter Popover (When action has parameters) */}
+        {/* Parameter Popover - Positioned directly over the central orb */}
         <AnimatePresence>
           {selectedParamAction && (
             <motion.div
               className="parameter-popover"
-              initial={{ opacity: 0, y: 10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
             >
               <div className="popover-header">
-                <span>{selectedParamAction.label} Options</span>
+                <span>{selectedParamAction.label}</span>
                 <span
                   className="popover-close"
                   onClick={() => setSelectedParamAction(null)}
@@ -380,7 +405,7 @@ export default function App() {
               {selectedParamAction.parameter?.type === 'quality' && (
                 <>
                   <div className="popover-slider-row">
-                    <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Quality:</span>
+                    <span style={{ fontSize: '10px', color: 'var(--muted)' }}>Quality:</span>
                     <input
                       type="range"
                       className="param-slider"
@@ -389,7 +414,7 @@ export default function App() {
                       value={qualityParam}
                       onChange={(e) => setQualityParam(Number(e.target.value))}
                     />
-                    <strong style={{ fontSize: '12px', minWidth: '35px' }}>{qualityParam}%</strong>
+                    <strong style={{ fontSize: '11px', minWidth: '30px' }}>{qualityParam}%</strong>
                   </div>
                   <div className="chips-row">
                     {[60, 75, 85, 95].map((q) => (
@@ -428,144 +453,216 @@ export default function App() {
                   })
                 }
               >
-                <span>Execute</span>
+                <span>Apply</span>
                 <span>➔</span>
               </button>
             </motion.div>
           )}
         </AnimatePresence>
+      </section>
 
-        {/* Category Filter Capsules Bar (When file is loaded and has actions) */}
-        {stage === 'ready' && categories.length > 1 && (
-          <nav className="category-filter-bar" aria-label="Action categories">
+      {/* Category Navigation Bar - Positioned cleanly BELOW the orbit */}
+      {stage === 'ready' && categories.length > 1 && (
+        <nav className="category-filter-bar" aria-label="Action categories">
+          <button
+            className={`category-chip ${activeCategory === 'all' && !showAllDrawer ? 'active' : ''}`}
+            onClick={() => {
+              setActiveCategory('all');
+              setSelectedParamAction(null);
+              setShowAllDrawer(false);
+            }}
+          >
+            All ({availableActions.length})
+          </button>
+          {categories.map((cat) => (
             <button
-              className={`category-chip ${activeCategory === 'all' ? 'active' : ''}`}
+              key={cat}
+              className={`category-chip ${activeCategory === cat && !showAllDrawer ? 'active' : ''}`}
               onClick={() => {
-                setActiveCategory('all');
+                setActiveCategory(cat);
                 setSelectedParamAction(null);
+                setShowAllDrawer(false);
               }}
             >
-              All ({availableActions.length})
+              {CATEGORY_LABELS[cat]}
             </button>
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                className={`category-chip ${activeCategory === cat ? 'active' : ''}`}
-                onClick={() => {
-                  setActiveCategory(cat);
-                  setSelectedParamAction(null);
-                }}
-              >
-                {CATEGORY_LABELS[cat]}
-              </button>
-            ))}
-          </nav>
-        )}
+          ))}
+          {availableActions.length > 6 && (
+            <button
+              className={`category-chip ${showAllDrawer ? 'active' : ''}`}
+              onClick={() => {
+                setShowAllDrawer(!showAllDrawer);
+                setSelectedParamAction(null);
+              }}
+              title="Browse all actions in palette"
+            >
+              More ▾
+            </button>
+          )}
+        </nav>
+      )}
 
-        {/* Status / File Information Area */}
-        <div className="status-area" aria-live="polite">
-          <motion.div
-            key={message}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: reduceMotion ? 0 : 0.2 }}
-          >
-            <h1 className="status-title">
-              {stage === 'done'
-                ? 'Completed'
+      {/* Status & Information Area */}
+      <div className="status-area" aria-live="polite">
+        <motion.div
+          key={message}
+          initial={{ opacity: 0, y: 3 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: reduceMotion ? 0 : 0.2 }}
+        >
+          <h1 className="status-title">
+            {stage === 'done'
+              ? 'Complete'
+              : stage === 'working'
+                ? 'Processing…'
+                : stage === 'error'
+                  ? 'Error Occurred'
+                  : selection
+                    ? selection.summaryLabel
+                    : 'Drop anything here'}
+          </h1>
+          <p className="status-subtitle">
+            {stage === 'idle'
+              ? 'Offline · Private · Native macOS file processor'
+              : stage === 'ready'
+                ? selection?.isMulti
+                  ? `${selection.files.length} images · ${formatBytes(selection.totalSize)} · Drop order preserved`
+                  : `${selection?.files[0]?.formatName || selection?.files[0]?.extension.toUpperCase()} · ${selection ? formatBytes(selection.totalSize) : ''}${selection?.files[0]?.width && selection?.files[0]?.height ? ` · ${selection.files[0].width}×${selection.files[0].height}` : ''} · Choose an action`
                 : stage === 'working'
-                  ? 'Processing…'
-                  : stage === 'error'
-                    ? 'Error Occurred'
-                    : file
-                      ? file.name
-                      : 'Drop anything here'}
-            </h1>
-            <p className="status-subtitle">
-              {stage === 'idle'
-                ? 'Offline · Private · Native macOS file processor'
-                : stage === 'ready'
-                  ? `${file?.formatName || file?.extension.toUpperCase()} · ${file ? formatBytes(file.size) : ''}${file?.width && file?.height ? ` · ${file.width}×${file.height}` : ''} · Choose an action`
-                  : stage === 'working'
-                    ? 'Converting strictly on this Mac…'
-                    : stage === 'done'
-                      ? (result?.message ?? 'Saved beside original file.')
-                      : error || 'Could not process this file.'}
-            </p>
-          </motion.div>
+                  ? 'Converting locally on your Mac…'
+                  : stage === 'done'
+                    ? (result?.message ?? 'Saved beside original files.')
+                    : error || 'Could not process this file.'}
+          </p>
+        </motion.div>
 
-          {/* Contextual Actions in status row */}
-          <div className="action-buttons-row">
-            {stage === 'idle' && (
-              <button className="pill-action-btn" onClick={() => void chooseFile()}>
-                <span>Choose File</span>
+        {/* Action Buttons Row */}
+        <div className="action-buttons-row">
+          {stage === 'idle' && (
+            <button className="pill-action-btn" onClick={() => void chooseFiles()}>
+              <span>Choose Files</span>
+              <span>↗</span>
+            </button>
+          )}
+
+          {stage === 'ready' && selection?.isMulti && (
+            <button
+              className="pill-action-btn primary-highlight"
+              onClick={() => {
+                const combineAction = availableActions.find((a) => a.id === 'combine-pdf');
+                if (combineAction) void runAction(combineAction);
+              }}
+            >
+              <span>Combine into one PDF</span>
+              <span>➔</span>
+            </button>
+          )}
+
+          {stage === 'done' && result?.outputPaths[0] && (
+            <>
+              <button
+                className="pill-action-btn primary-highlight"
+                onClick={() => void invoke('reveal_in_finder', { path: result.outputPaths[0] })}
+              >
+                <span>Reveal in Finder</span>
                 <span>↗</span>
               </button>
-            )}
-
-            {stage === 'done' && result?.outputPaths[0] && (
-              <>
-                <button
-                  className="pill-action-btn"
-                  onClick={() => void invoke('reveal_in_finder', { path: result.outputPaths[0] })}
-                >
-                  <span>Reveal in Finder</span>
-                  <span>↗</span>
-                </button>
-                <button className="pill-action-btn" onClick={reset}>
-                  <span>Process Another</span>
-                  <span>↻</span>
-                </button>
-              </>
-            )}
-
-            {stage === 'ready' && (
               <button className="pill-action-btn" onClick={reset}>
-                <span>Reset</span>
-                <span>✕</span>
+                <span>Process Another</span>
+                <span>↻</span>
               </button>
-            )}
-          </div>
+            </>
+          )}
 
-          {stage === 'error' && <p className="status-error">{error}</p>}
+          {stage === 'ready' && (
+            <button className="pill-action-btn" onClick={reset}>
+              <span>Reset</span>
+              <span>✕</span>
+            </button>
+          )}
         </div>
 
-        {/* ZIP Contents Preview Drawer */}
-        <AnimatePresence>
-          {zipContents && (
-            <motion.div
-              className="zip-drawer"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-            >
-              <div className="zip-header">
-                <span className="zip-title">Archive Contents ({zipContents.length} items)</span>
+        {stage === 'error' && <p className="status-error">{error}</p>}
+      </div>
+
+      {/* Expandable Action Shelf / Palette */}
+      <AnimatePresence>
+        {showAllDrawer && (
+          <motion.div
+            className="all-actions-drawer"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+          >
+            <div className="drawer-header">
+              <span className="drawer-title">
+                Available Operations ({availableActions.length})
+              </span>
+              <button
+                onClick={() => setShowAllDrawer(false)}
+                style={{ fontSize: '16px', color: 'var(--muted)' }}
+                aria-label="Close action palette"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="drawer-grid">
+              {availableActions.map((action) => (
                 <button
-                  onClick={() => setZipContents(null)}
-                  style={{ fontSize: '18px', color: 'var(--muted)' }}
-                  aria-label="Close archive preview"
+                  key={action.id}
+                  className="drawer-card"
+                  onClick={() => {
+                    setShowAllDrawer(false);
+                    handleActionClick(action);
+                  }}
                 >
-                  ✕
+                  <span className="drawer-card-icon">{action.symbol}</span>
+                  <div className="drawer-card-info">
+                    <span className="drawer-card-label">{action.label}</span>
+                    <span className="drawer-card-detail">{action.detail}</span>
+                  </div>
                 </button>
-              </div>
-              <div className="zip-list">
-                {zipContents.slice(0, 150).map((name, i) => (
-                  <div className="zip-item" key={`${name}-${i}`}>
-                    <span>{name.endsWith('/') ? '📁' : '📄'}</span>
-                    <span>{name}</span>
-                  </div>
-                ))}
-                {zipContents.length > 150 && (
-                  <div style={{ textAlign: 'center', padding: '8px', color: 'var(--accent)' }}>
-                    …and {zipContents.length - 150} more items
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </section>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ZIP Archive Content Preview Drawer */}
+      <AnimatePresence>
+        {zipContents && (
+          <motion.div
+            className="zip-drawer"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+          >
+            <div className="zip-header">
+              <span className="zip-title">Archive Contents ({zipContents.length} items)</span>
+              <button
+                onClick={() => setZipContents(null)}
+                style={{ fontSize: '18px', color: 'var(--muted)' }}
+                aria-label="Close archive preview"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="zip-list">
+              {zipContents.slice(0, 150).map((name, i) => (
+                <div className="zip-item" key={`${name}-${i}`}>
+                  <span>{name.endsWith('/') ? '📁' : '📄'}</span>
+                  <span>{name}</span>
+                </div>
+              ))}
+              {zipContents.length > 150 && (
+                <div style={{ textAlign: 'center', padding: '8px', color: 'var(--accent)' }}>
+                  …and {zipContents.length - 150} more items
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 }

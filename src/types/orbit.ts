@@ -49,8 +49,17 @@ export interface FileMetadata {
   actions: ActionDefinition[];
 }
 
+export interface SelectionMetadata {
+  files: FileMetadata[];
+  isMulti: boolean;
+  totalSize: number;
+  summaryLabel: string;
+  actions: ActionDefinition[];
+}
+
 export interface ActionExecutionRequest {
-  path: string;
+  path?: string;
+  paths?: string[];
   actionId: string;
   quality?: number;
   scalePercent?: number;

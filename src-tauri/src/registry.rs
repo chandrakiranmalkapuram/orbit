@@ -76,7 +76,7 @@ impl CapabilityRegistry {
                 // Image to PDF (always available)
                 actions.push(ActionDefinition {
                     id: "to-pdf".into(),
-                    label: "To PDF".into(),
+                    label: "Convert to PDF".into(),
                     detail: "Convert image into a PDF document".into(),
                     symbol: "▤".into(),
                     category: ActionCategory::Format,
@@ -353,6 +353,98 @@ impl CapabilityRegistry {
                 });
             }
 
+            FileKind::Pdf => {
+                actions.push(ActionDefinition {
+                    id: "pdf-to-png".into(),
+                    label: "PNG".into(),
+                    detail: "Convert PDF page(s) to lossless PNG images".into(),
+                    symbol: "◈".into(),
+                    category: ActionCategory::Format,
+                    engine: "sips".into(),
+                    input_formats: vec!["pdf".into()],
+                    output_format: Some("png".into()),
+                    available: true,
+                    limitations: None,
+                    supports_batch: true,
+                    supports_progress: false,
+                    output_naming_rule: "stem.png".into(),
+                    parameter: None,
+                    is_primary: true,
+                });
+
+                actions.push(ActionDefinition {
+                    id: "pdf-to-jpeg".into(),
+                    label: "JPEG".into(),
+                    detail: "Convert PDF page(s) to standard JPEG images".into(),
+                    symbol: "◉".into(),
+                    category: ActionCategory::Format,
+                    engine: "sips".into(),
+                    input_formats: vec!["pdf".into()],
+                    output_format: Some("jpg".into()),
+                    available: true,
+                    limitations: None,
+                    supports_batch: true,
+                    supports_progress: false,
+                    output_naming_rule: "stem.jpg".into(),
+                    parameter: None,
+                    is_primary: true,
+                });
+
+                actions.push(ActionDefinition {
+                    id: "pdf-extract-text".into(),
+                    label: "Extract Text".into(),
+                    detail: "Extract all text layers into a .txt file".into(),
+                    symbol: "≡".into(),
+                    category: ActionCategory::Transform,
+                    engine: "lopdf".into(),
+                    input_formats: vec!["pdf".into()],
+                    output_format: Some("txt".into()),
+                    available: true,
+                    limitations: Some("Scanned image PDFs without text layer will have no text".into()),
+                    supports_batch: true,
+                    supports_progress: false,
+                    output_naming_rule: "stem.txt".into(),
+                    parameter: None,
+                    is_primary: true,
+                });
+
+                actions.push(ActionDefinition {
+                    id: "pdf-split-pages".into(),
+                    label: "Split Pages".into(),
+                    detail: "Split multipage PDF into individual page files".into(),
+                    symbol: "⎘".into(),
+                    category: ActionCategory::Transform,
+                    engine: "lopdf".into(),
+                    input_formats: vec!["pdf".into()],
+                    output_format: Some("pdf".into()),
+                    available: true,
+                    limitations: None,
+                    supports_batch: false,
+                    supports_progress: false,
+                    output_naming_rule: "stem_page_N.pdf".into(),
+                    parameter: None,
+                    is_primary: true,
+                });
+
+                actions.push(ActionDefinition {
+                    id: "pdf-info".into(),
+                    label: "PDF Info".into(),
+                    detail: "Inspect page count, version, and metadata".into(),
+                    symbol: "ℹ".into(),
+                    category: ActionCategory::Utility,
+                    engine: "lopdf".into(),
+                    input_formats: vec!["pdf".into()],
+                    output_format: None,
+                    available: true,
+                    limitations: None,
+                    supports_batch: false,
+                    supports_progress: false,
+                    output_naming_rule: "".into(),
+                    parameter: None,
+                    is_primary: true,
+                });
+            }
+
             _ => {}
         }
 
@@ -396,6 +488,147 @@ impl CapabilityRegistry {
         }
 
         // Only return actions whose implementation is genuinely available
+        actions.into_iter().filter(|a| a.available).collect()
+    }
+
+    pub fn get_multi_selection_actions(files: &[FileMetadata]) -> Vec<ActionDefinition> {
+        let mut actions = Vec::new();
+        if files.is_empty() {
+            return actions;
+        }
+
+        let all_images = files.iter().all(|f| f.kind == FileKind::Image);
+        let all_pdfs = files.iter().all(|f| f.kind == FileKind::Pdf);
+        let all_images_or_pdfs = files.iter().all(|f| f.kind == FileKind::Image || f.kind == FileKind::Pdf);
+
+        if all_images_or_pdfs {
+            let label = if all_pdfs {
+                "Merge into one PDF"
+            } else {
+                "Combine into one PDF"
+            };
+            let detail = if all_pdfs {
+                format!("Merge {} PDF documents into one single PDF", files.len())
+            } else {
+                format!("Combine {} files (images & PDFs) into one PDF document", files.len())
+            };
+
+            // Combine / Merge into one PDF
+            actions.push(ActionDefinition {
+                id: "combine-pdf".into(),
+                label: label.into(),
+                detail,
+                symbol: "▤".into(),
+                category: ActionCategory::Format,
+                engine: "pdf-writer".into(),
+                input_formats: vec!["jpg".into(), "jpeg".into(), "png".into(), "webp".into(), "bmp".into(), "tiff".into(), "pdf".into()],
+                output_format: Some("pdf".into()),
+                available: true,
+                limitations: None,
+                supports_batch: true,
+                supports_progress: false,
+                output_naming_rule: "Combined.pdf".into(),
+                parameter: None,
+                is_primary: true,
+            });
+
+            // Batch convert to PNG
+            actions.push(ActionDefinition {
+                id: "batch-to-png".into(),
+                label: "Batch to PNG".into(),
+                detail: format!("Convert all {} images to PNG format", files.len()),
+                symbol: "◈".into(),
+                category: ActionCategory::Format,
+                engine: "image-rs".into(),
+                input_formats: vec!["*".into()],
+                output_format: Some("png".into()),
+                available: true,
+                limitations: None,
+                supports_batch: true,
+                supports_progress: false,
+                output_naming_rule: "stem.png".into(),
+                parameter: None,
+                is_primary: true,
+            });
+
+            // Batch convert to JPEG
+            actions.push(ActionDefinition {
+                id: "batch-to-jpeg".into(),
+                label: "Batch to JPEG".into(),
+                detail: format!("Convert all {} images to JPEG format", files.len()),
+                symbol: "◉".into(),
+                category: ActionCategory::Format,
+                engine: "image-rs".into(),
+                input_formats: vec!["*".into()],
+                output_format: Some("jpg".into()),
+                available: true,
+                limitations: None,
+                supports_batch: true,
+                supports_progress: false,
+                output_naming_rule: "stem.jpg".into(),
+                parameter: Some(ActionParameterType::Quality { min: 10, max: 100, default: 85 }),
+                is_primary: true,
+            });
+
+            if all_images {
+                // Batch convert to WebP
+                actions.push(ActionDefinition {
+                    id: "batch-to-webp".into(),
+                    label: "Batch to WebP".into(),
+                    detail: format!("Convert all {} images to WebP format", files.len()),
+                    symbol: "◇".into(),
+                    category: ActionCategory::Format,
+                    engine: "image-rs".into(),
+                    input_formats: vec!["*".into()],
+                    output_format: Some("webp".into()),
+                    available: true,
+                    limitations: None,
+                    supports_batch: true,
+                    supports_progress: false,
+                    output_naming_rule: "stem.webp".into(),
+                    parameter: None,
+                    is_primary: true,
+                });
+            }
+        }
+
+        // Common multi-file utilities
+        actions.push(ActionDefinition {
+            id: "reveal-finder".into(),
+            label: "Finder".into(),
+            detail: "Reveal first file location in Finder".into(),
+            symbol: "⌕".into(),
+            category: ActionCategory::Utility,
+            engine: "system".into(),
+            input_formats: vec!["*".into()],
+            output_format: None,
+            available: true,
+            limitations: None,
+            supports_batch: false,
+            supports_progress: false,
+            output_naming_rule: "".into(),
+            parameter: None,
+            is_primary: false,
+        });
+
+        actions.push(ActionDefinition {
+            id: "copy-path".into(),
+            label: "Copy Paths".into(),
+            detail: "Copy all file paths to clipboard".into(),
+            symbol: "⎘".into(),
+            category: ActionCategory::Utility,
+            engine: "system".into(),
+            input_formats: vec!["*".into()],
+            output_format: None,
+            available: true,
+            limitations: None,
+            supports_batch: false,
+            supports_progress: false,
+            output_naming_rule: "".into(),
+            parameter: None,
+            is_primary: false,
+        });
+
         actions.into_iter().filter(|a| a.available).collect()
     }
 }
@@ -483,4 +716,32 @@ mod tests {
         let actions = CapabilityRegistry::get_available_actions(&meta);
         assert!(actions.is_empty());
     }
+
+    #[test]
+    fn test_pdf_actions_registry() {
+        let meta = create_test_metadata(FileKind::Pdf, "application/pdf", "pdf");
+        let actions = CapabilityRegistry::get_available_actions(&meta);
+        let ids: Vec<&str> = actions.iter().map(|a| a.id.as_str()).collect();
+
+        assert!(ids.contains(&"pdf-to-png"));
+        assert!(ids.contains(&"pdf-to-jpeg"));
+        assert!(ids.contains(&"pdf-extract-text"));
+        assert!(ids.contains(&"pdf-split-pages"));
+        assert!(ids.contains(&"pdf-info"));
+        assert!(ids.contains(&"reveal-finder"));
+        assert!(ids.contains(&"copy-path"));
+    }
+
+    #[test]
+    fn test_multi_pdf_actions_registry() {
+        let pdf1 = create_test_metadata(FileKind::Pdf, "application/pdf", "pdf");
+        let pdf2 = create_test_metadata(FileKind::Pdf, "application/pdf", "pdf");
+        let actions = CapabilityRegistry::get_multi_selection_actions(&[pdf1, pdf2]);
+        let ids: Vec<&str> = actions.iter().map(|a| a.id.as_str()).collect();
+
+        assert!(ids.contains(&"combine-pdf"));
+        let combine_action = actions.iter().find(|a| a.id == "combine-pdf").unwrap();
+        assert_eq!(combine_action.label, "Merge into one PDF");
+    }
 }
+
