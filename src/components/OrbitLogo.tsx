@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 
 interface OrbitLogoProps {
   size?: number;
@@ -11,6 +11,11 @@ export const OrbitLogo: React.FC<OrbitLogoProps> = ({
   className = '',
   animate = false,
 }) => {
+  const uid = useId().replace(/:/g, '');
+  const saffronId = `orbit-saffron-${uid}`;
+  const blueId = `orbit-blue-${uid}`;
+  const coreId = `orbit-core-${uid}`;
+
   return (
     <svg
       width={size}
@@ -23,7 +28,7 @@ export const OrbitLogo: React.FC<OrbitLogoProps> = ({
     >
       <defs>
         {/* Surya Saffron Gradient */}
-        <linearGradient id="orbit-saffron" x1="0%" y1="100%" x2="100%" y2="0%">
+        <linearGradient id={saffronId} x1="0%" y1="100%" x2="100%" y2="0%">
           <stop offset="0%" stopColor="#FF3D00" />
           <stop offset="40%" stopColor="#FF7A00" />
           <stop offset="75%" stopColor="#FFAA00" />
@@ -31,13 +36,13 @@ export const OrbitLogo: React.FC<OrbitLogoProps> = ({
         </linearGradient>
 
         {/* Ashoka Sapphire Gradient */}
-        <linearGradient id="orbit-blue" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id={blueId} x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#60A5FA" />
           <stop offset="100%" stopColor="#1D4ED8" />
         </linearGradient>
 
         {/* Surya Radiant Core */}
-        <radialGradient id="orbit-core" cx="38%" cy="35%" r="65%">
+        <radialGradient id={coreId} cx="38%" cy="35%" r="65%">
           <stop offset="0%" stopColor="#FFFBEB" />
           <stop offset="25%" stopColor="#FDE68A" />
           <stop offset="55%" stopColor="#F59E0B" />
@@ -64,7 +69,7 @@ export const OrbitLogo: React.FC<OrbitLogoProps> = ({
           cy="60"
           rx="44"
           ry="15"
-          stroke="url(#orbit-blue)"
+          stroke={`url(#${blueId})`}
           strokeWidth="1.8"
           strokeDasharray="3.5 2.5"
           opacity="0.8"
@@ -80,7 +85,7 @@ export const OrbitLogo: React.FC<OrbitLogoProps> = ({
           cy="60"
           rx="48"
           ry="18"
-          stroke="url(#orbit-saffron)"
+          stroke={`url(#${saffronId})`}
           strokeWidth="3.2"
           strokeLinecap="round"
         />
@@ -90,12 +95,12 @@ export const OrbitLogo: React.FC<OrbitLogoProps> = ({
       </g>
 
       {/* Central Surya Body */}
-      <circle cx="60" cy="60" r="17" fill="url(#orbit-core)" />
+      <circle cx="60" cy="60" r="17" fill={`url(#${coreId})`} />
       {/* Dark Depth Moat */}
       <circle cx="60" cy="60" r="12" fill="#080d1a" />
       <circle cx="60" cy="60" r="12" stroke="#F59E0B" strokeWidth="0.8" opacity="0.65" />
       {/* Inner Radiant Nucleus */}
-      <circle cx="60" cy="60" r="6.8" fill="url(#orbit-core)" />
+      <circle cx="60" cy="60" r="6.8" fill={`url(#${coreId})`} />
       <circle cx="60" cy="60" r="2.5" fill="#FFFFFF" opacity="0.9" />
     </svg>
   );
