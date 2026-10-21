@@ -1,0 +1,21 @@
+[package]
+name = "orbit"
+version = "0.1.0"
+description = "ORBIT — private, offline file utility"
+authors = ["ORBIT contributors"]
+edition = "2021"
+
+[lib]
+name = "orbit_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.4.1", features = [] }
+
+[dependencies]
+tauri = { version = "2.8.5", features = [] }
+tauri-plugin-dialog = "2.4.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25.8", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff"] }
+zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
