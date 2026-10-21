@@ -2,54 +2,94 @@
 
 **Drop it. Transform it. Done.**
 
-ORBIT is a local-first macOS file utility built with Tauri 2, React, TypeScript, and Rust. Its design centres on a single interactive circle rather than a dashboard.
+ORBIT is a local-first macOS desktop utility built with Tauri 2, React, TypeScript, and Rust. Its design centres on a floating, transparent interactive orb that stays on your desktop, ready for Finder drag-and-drop.
 
-## Privacy principles
+---
 
-- File processing is intended to happen on the user's computer.
-- No accounts, analytics, telemetry, cloud conversion, or AI are part of the product scope.
-- Runtime UI assets must be bundled locally; do not add remote fonts, scripts, stylesheets, or APIs.
-- The app should be tested with networking disabled before release.
+## Key Features
 
-## Current implementation scope
+- **Floating Desktop Orb**: Frameless, transparent floating window with `alwaysOnTop` toggle and native macOS window dragging.
+- **Dynamic Capability Registry**: Rust-backed registry that determines genuine, valid actions based on detected magic bytes and installed local engines.
+- **Comprehensive Image Conversions**:
+  - Convert between **PNG, JPEG, WebP, BMP, TIFF**, and **GIF**.
+  - **Image-to-PDF**: Pure-Rust PDF 1.4 document creation with JPEG passthrough and Deflate compression.
+  - **Alpha Flattening**: PNG/WebP with transparency are cleanly flattened onto customizable background colors for JPEG output (no black box artifacts).
+- **Image Transformations**:
+  - Rotate 90°, 180°, and 270°.
+  - Horizontal & Vertical flip.
+  - Grayscale conversion.
+  - Lanczos3 high-quality scaling (percentage presets or custom dimensions).
+  - Center square cropping (1:1).
+  - EXIF & metadata stripping.
+- **Hardened Archive Processing**:
+  - ZIP listing & safe extraction.
+  - Path traversal defense (`..` rejection).
+  - Symbolic link rejection.
+  - Zip-bomb limits (10,000 max entries, 2 GB total extracted limit, 512 MB per-file limit).
+- **Atomic Output Safety**: Original files are never modified. Outputs are written atomically to temporary files and renamed without overwriting existing files (`file (2).png`).
+- **Contextual Parameters**: Adjust compression quality or resize scaling directly on the orb without complex modal dialogs.
+- **Privacy & Offline First**: Zero cloud dependencies, zero external APIs, zero telemetry, zero analytics, zero AI models.
 
-The starter implementation includes:
+---
 
-- A circular drag-and-drop interface with light/dark appearance.
-- Local file inspection for common file signatures and file extensions.
-- Local image conversion to PNG, JPEG, and WebP using the Rust `image` crate.
-- ZIP archive listing and extraction with path validation, symlink rejection, output naming, and extraction limits.
-- Reveal output in Finder.
+## Genuine Capabilities vs Known Limitations
 
-Not yet implemented: image-to-PDF, PDF page rendering, DOCX-to-PDF, selected ZIP extraction, password-protected archives, batch processing, audio/video conversion, progress events, and Finder Quick Actions. These must not be advertised as supported until implemented and tested.
+### Supported & Tested
+- Format conversions: JPEG ➔ PNG, JPEG ➔ WebP, JPEG ➔ BMP, JPEG ➔ TIFF, JPEG ➔ PDF, PNG ➔ JPEG, PNG ➔ WebP, WebP ➔ PNG, WebP ➔ JPEG.
+- Transformations: Rotate, Flip, Grayscale, Resize, Square Crop, Strip EXIF.
+- Archives: ZIP preview and safe extraction.
+- Utilities: Reveal in Finder, Copy Path.
+
+### Explicitly Excluded (No Placeholders)
+- **HEIC Encoding**: Not offered unless a native macOS hardware encoder or libheif is installed locally.
+- **Raster-to-SVG**: Not offered because raster pixels cannot be converted into true vector artwork without vector tracing.
+- **Encrypted Archives**: Password-protected ZIPs are not yet supported.
+
+---
 
 ## Prerequisites
 
+- macOS 12.0 or newer (Apple Silicon or Intel)
 - Node.js 20 or newer and npm
-- Rust toolchain (`rustup` / Cargo)
-- macOS development prerequisites required by Tauri 2
+- Rust toolchain (`rustc` and `cargo` via `rustup`)
+- Xcode Command Line Tools (`xcode-select --install`)
 
-## Development
+---
+
+## Development & Testing
 
 ```sh
+# Install dependencies
 npm install
+
+# Run automated tests (Rust unit & integration tests)
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# Run TypeScript type-check and frontend build
+npm run build
+
+# Run in development mode
 npm run tauri dev
 ```
 
-## Build a distributable macOS app
+---
+
+## Building the macOS App Bundle
 
 ```sh
-npm install
 npm run tauri build
 ```
 
-Tauri's output is created under `src-tauri/target/release/bundle/` when the required toolchain and platform dependencies are available. Signing and notarization are separate release steps.
+Built bundles will be located at:
+- **macOS App**: `src-tauri/target/release/bundle/macos/ORBIT.app`
+- **Installer DMG**: `src-tauri/target/release/bundle/dmg/ORBIT_0.1.0_aarch64.dmg`
 
-## Before public release
+---
 
-1. Build and test on macOS.
-2. Test conversions and extraction against malformed, large, and unusual files.
-3. Verify no network requests are made by the packaged app while processing files.
-4. Audit bundled dependencies and their licenses.
-5. Test on Apple Silicon and, if supported, Intel Macs.
-6. Sign and notarize the app for a smoother download-and-open experience.
+## Verifying Offline Operation
+
+1. Turn off Wi-Fi on your Mac (or disconnect Ethernet).
+2. Launch `ORBIT.app` from `src-tauri/target/release/bundle/macos/`.
+3. Drop a JPEG, PNG, or ZIP file onto the orb.
+4. Perform conversions and extraction.
+5. All operations run locally and complete without any internet connection.

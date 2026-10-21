@@ -4,6 +4,31 @@
   "version": "0.1.0",
   "identifier": "app.orbit.fileutility",
   "build": { "beforeDevCommand": "npm run dev", "devUrl": "http://127.0.0.1:1420", "beforeBuildCommand": "npm run build", "frontendDist": "../dist" },
-  "app": { "windows": [{ "title": "ORBIT", "width": 920, "height": 760, "minWidth": 680, "minHeight": 600, "center": true, "resizable": true, "decorations": true }], "security": { "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost" } },
-  "bundle": { "active": true, "targets": ["dmg", "app"], "category": "Utility", "shortDescription": "Private offline file utility", "longDescription": "Convert images and safely extract ZIP archives locally on your Mac.", "macOS": { "minimumSystemVersion": "12.0" } }
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "ORBIT",
+        "width": 780,
+        "height": 780,
+        "center": true,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "shadow": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app"],
+    "category": "Utility",
+    "shortDescription": "Private offline file utility",
+    "longDescription": "Floating offline desktop orb for instant file conversions and safe extractions on macOS.",
+    "macOS": { "minimumSystemVersion": "12.0" }
+  }
 }

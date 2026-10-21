@@ -1,38 +1,37 @@
-# ORBIT architecture
+# ORBIT Architecture
 
-## Product rule
+## Product Rule
 
-The interface may only show actions registered as supported for the detected input type. No action should be displayed merely because a format name sounds compatible.
+The interface may **only** show actions registered as genuinely supported for the detected input type and installed local engines. No action is ever displayed merely because a format name sounds compatible or as a placeholder.
 
-## Layers
+## Architectural Layers
 
-1. **Presentation (`src/`)** — React components, circular interaction, animation, theme, accessible status and errors.
-2. **Capability registry (`src/lib/actions.ts`)** — maps supported input kinds to real operations. Keep unsupported future actions out of the registry until implemented.
-3. **Native command boundary (`src-tauri/src/lib.rs`)** — validates paths and inputs, performs local processing, returns structured results, and avoids shelling out unless a specific platform integration requires it.
-4. **Conversion engines** — libraries bundled with the app. Every engine must be audited for licensing, supported formats, memory use, and offline behaviour.
-5. **Output manager** — preserves originals, chooses non-conflicting output paths, writes temporary output before finalizing, and reports errors clearly.
+1. **Presentation Layer (`src/`)**
+   - Floating transparent desktop orb with frameless window and macOS always-on-top toggle.
+   - Circular radial action layout with dynamic category filtering (`Formats`, `Transforms`, `Optimize`, `Archive`, `Utilities`).
+   - Contextual micro-parameter controls for operations requiring user input (e.g., quality slider, resize scale presets) directly on the orb without opening full settings screens.
+   - Respects macOS `prefers-reduced-motion` settings.
 
-## Offline guarantee
+2. **Capability Registry (`src-tauri/src/registry.rs`)**
+   - Central authority in Rust determining available actions based on file metadata, MIME signatures, and installed local processing engines.
+   - Each action definition provides unique ID, user label, detail, symbol, category, engine ID, input/output formats, naming rules, and parameter schemas.
+   - Never exposes unsupported operations (e.g., raster-to-SVG vectorization or HEIC encoding without local hardware encoder).
 
-Do not add remote API calls, web fonts, external scripts, remote stylesheets, analytics, telemetry, or model downloads. Keep CSP restrictive. Before release, run the packaged app with network access disabled and inspect its network activity. Development mode uses a local Vite server, but production should load the bundled frontend only.
+3. **Processing Engines (`src-tauri/src/engines/`)**
+   - **`image_convert`**: Multi-format image conversion (PNG, JPEG, WebP, BMP, TIFF, GIF) with configurable quality and alpha channel flattening to clean background color (preventing black artifacts).
+   - **`image_transform`**: Local pixel transformations including 90°/180°/270° rotation, horizontal/vertical flipping, Lanczos3 dimension and percentage scaling, square center-cropping, grayscale conversion, and EXIF/metadata stripping.
+   - **`pdf`**: Pure-Rust PDF 1.4 document generator supporting direct DCTDecode JPEG stream passthrough (zero-loss, instantaneous) and Zlib Deflate compression for raster images.
+   - **`archive`**: Hardened ZIP preview and extraction with path traversal protection (`enclosed_name`), symbolic link rejection, entry count limits (10,000 entries), and size bomb limits (2 GB total, 512 MB single file).
+   - **`metadata`**: Magic byte detection (PNG, JPEG, WebP, GIF, BMP, TIFF, PDF, ZIP) and safe header inspection without loading full pixel buffers into RAM.
 
-## Security priorities
+4. **Output Safety Manager (`src-tauri/src/output.rs`)**
+   - Strict preservation of original files.
+   - Conflict-safe unique filename resolution (`stem (2).ext`).
+   - Atomic temporary file writing (`.orbit-<pid>-<nanos>.tmp`) with automatic RAII cleanup on failure or cancellation.
 
-- Treat file contents and archive paths as untrusted.
-- Use file signatures in addition to extensions where practical.
-- Reject archive traversal paths and symbolic links.
-- Enforce entry-count and expanded-size limits.
-- Avoid overwrites and use exclusive file creation where possible.
-- Never execute content from user-supplied files.
-- Keep CPU- and memory-intensive work off the UI thread.
+## Offline Guarantee
 
-## Phased delivery
-
-1. Foundation and offline UI.
-2. Verified file inspection and supported image conversions.
-3. Secure ZIP listing and extraction.
-4. Image-to-PDF and PDF rendering.
-5. Document conversion with a bundled local engine.
-6. Batch processing and cancellation.
-7. Optional media engines, only if bundle size and licensing are acceptable.
-8. macOS packaging, signing, notarization, offline and security testing.
+- Zero cloud dependencies, zero external APIs, zero telemetry, zero analytics, zero AI models.
+- All fonts and assets bundled locally.
+- Strict Content Security Policy (CSP).
+- The packaged app operates identically with network interfaces disabled.

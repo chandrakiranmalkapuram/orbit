@@ -1,191 +1,491 @@
-use image::ImageEncoder;
-use serde::Serialize;
-use std::{
-    fs::{self, File, OpenOptions},
-    io::{self, Read, Write},
-    path::{Path, PathBuf},
-    process::Command,
+pub mod engines;
+pub mod metadata;
+pub mod models;
+pub mod output;
+pub mod registry;
+
+use engines::{
+    archive::{self, list_zip_contents},
+    image_convert,
+    image_transform::{self, TransformKind},
+    pdf,
 };
-use zip::ZipArchive;
+use metadata::{file_name, path_string};
+use models::{ActionExecutionRequest, FileMetadata, OperationResult};
+use output::AtomicOutput;
+use registry::CapabilityRegistry;
+use std::{path::{Path, PathBuf}, process::Command};
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DetectedFile {
+#[tauri::command]
+fn inspect_file(path: String) -> Result<FileMetadata, String> {
+    let mut meta = metadata::inspect_file_properties(&path)?;
+    meta.actions = CapabilityRegistry::get_available_actions(&meta);
+    Ok(meta)
+}
+
+#[tauri::command]
+fn execute_action(req: ActionExecutionRequest) -> Result<OperationResult, String> {
+    let p = PathBuf::from(&req.path);
+    if !p.exists() {
+        return Err("The source file no longer exists.".into());
+    }
+
+    match req.action_id.as_str() {
+        "to-png" => {
+            let out = image_convert::convert_image_format(&p, "png", None, None)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Saved {} as lossless PNG.", file_name(&out)),
+                details: None,
+            })
+        }
+        "to-jpeg" => {
+            let out = image_convert::convert_image_format(
+                &p,
+                "jpg",
+                req.quality,
+                req.bg_color.as_deref(),
+            )?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Saved {} as JPEG.", file_name(&out)),
+                details: None,
+            })
+        }
+        "to-webp" => {
+            let out = image_convert::convert_image_format(&p, "webp", req.quality, None)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Saved {} as WebP.", file_name(&out)),
+                details: None,
+            })
+        }
+        "to-bmp" => {
+            let out = image_convert::convert_image_format(&p, "bmp", None, None)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Saved {} as BMP.", file_name(&out)),
+                details: None,
+            })
+        }
+        "to-tiff" => {
+            let out = image_convert::convert_image_format(&p, "tiff", None, None)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Saved {} as TIFF.", file_name(&out)),
+                details: None,
+            })
+        }
+        "to-pdf" => {
+            let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("document");
+            let desired = p.with_file_name(format!("{stem}.pdf"));
+            let atomic_writer = AtomicOutput::new(desired)?;
+            pdf::image_file_to_pdf(&p, &atomic_writer.temp_path)?;
+            let final_path = atomic_writer.finish()?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&final_path)],
+                message: format!("Created PDF document {}.", file_name(&final_path)),
+                details: None,
+            })
+        }
+        "compress-image" => {
+            let q = req.quality.unwrap_or(75);
+            let ext = metadata::extension(&p);
+            let target_fmt = if ext == "png" {
+                "png"
+            } else if ext == "webp" {
+                "webp"
+            } else {
+                "jpg"
+            };
+            let out = image_convert::convert_image_format(&p, target_fmt, Some(q), None)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Saved optimized image {} (quality: {q}%).", file_name(&out)),
+                details: None,
+            })
+        }
+        "strip-metadata" => {
+            let out = image_transform::transform_image(&p, TransformKind::StripMetadata)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Saved clean image {} with all EXIF stripped.", file_name(&out)),
+                details: None,
+            })
+        }
+        "rotate-90" => {
+            let out = image_transform::transform_image(&p, TransformKind::Rotate90)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Rotated 90°: {}.", file_name(&out)),
+                details: None,
+            })
+        }
+        "rotate-180" => {
+            let out = image_transform::transform_image(&p, TransformKind::Rotate180)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Rotated 180°: {}.", file_name(&out)),
+                details: None,
+            })
+        }
+        "rotate-270" => {
+            let out = image_transform::transform_image(&p, TransformKind::Rotate270)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Rotated 270°: {}.", file_name(&out)),
+                details: None,
+            })
+        }
+        "flip-h" => {
+            let out = image_transform::transform_image(&p, TransformKind::FlipHorizontal)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Flipped horizontally: {}.", file_name(&out)),
+                details: None,
+            })
+        }
+        "flip-v" => {
+            let out = image_transform::transform_image(&p, TransformKind::FlipVertical)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Flipped vertically: {}.", file_name(&out)),
+                details: None,
+            })
+        }
+        "to-grayscale" => {
+            let out = image_transform::transform_image(&p, TransformKind::Grayscale)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Converted to grayscale: {}.", file_name(&out)),
+                details: None,
+            })
+        }
+        "resize-scale" => {
+            let scale = req.scale_percent.unwrap_or(50);
+            let out = image_transform::transform_image(&p, TransformKind::ResizeScale(scale))?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Resized ({scale}%): {}.", file_name(&out)),
+                details: None,
+            })
+        }
+        "crop-square" => {
+            let out = image_transform::transform_image(&p, TransformKind::CropSquare)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out)],
+                message: format!("Cropped 1:1 square: {}.", file_name(&out)),
+                details: None,
+            })
+        }
+        "extract-zip" => {
+            let out_dir = archive::extract_zip_safe(&p)?;
+            Ok(OperationResult {
+                output_paths: vec![path_string(&out_dir)],
+                message: format!("Extracted archive safely to {}.", file_name(&out_dir)),
+                details: None,
+            })
+        }
+        "reveal-finder" => {
+            reveal_in_finder(req.path)?;
+            Ok(OperationResult {
+                output_paths: vec![],
+                message: "Revealed in Finder.".into(),
+                details: None,
+            })
+        }
+        "copy-path" => Ok(OperationResult {
+            output_paths: vec![req.path.clone()],
+            message: format!("Copied path to clipboard: {}", file_name(&p)),
+            details: None,
+        }),
+        unknown => Err(format!("Action '{unknown}' is not supported.")),
+    }
+}
+
+// Retain compatibility with existing commands
+#[tauri::command]
+fn convert_image(
     path: String,
-    name: String,
-    extension: String,
-    kind: String,
-    mime: String,
-    size: u64,
-    actions: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct OperationResult {
-    output_paths: Vec<String>,
-    message: String,
-}
-
-fn path_string(path: &Path) -> String { path.to_string_lossy().into_owned() }
-fn file_name(path: &Path) -> String { path.file_name().and_then(|s| s.to_str()).unwrap_or("file").to_string() }
-fn extension(path: &Path) -> String { path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase() }
-
-fn unique_path(path: &Path) -> PathBuf {
-    if !path.exists() { return path.to_path_buf(); }
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
-    let ext = path.extension().and_then(|s| s.to_str());
-    for i in 2..100_000 {
-        let name = match ext { Some(e) if !e.is_empty() => format!("{stem} ({i}).{e}"), _ => format!("{stem} ({i})") };
-        let candidate = parent.join(name);
-        if !candidate.exists() { return candidate; }
-    }
-    parent.join(format!("{stem}-{}", std::process::id()))
-}
-
-fn sniff(path: &Path) -> Result<(String, String), String> {
-    let mut file = File::open(path).map_err(|e| format!("Cannot read file: {e}"))?;
-    let mut head = [0u8; 16];
-    let n = file.read(&mut head).map_err(|e| format!("Cannot inspect file: {e}"))?;
-    let b = &head[..n];
-    if b.starts_with(b"PK\x03\x04") || b.starts_with(b"PK\x05\x06") || b.starts_with(b"PK\x07\x08") { return Ok(("archive".into(), "application/zip".into())); }
-    if b.starts_with(b"%PDF-") { return Ok(("pdf".into(), "application/pdf".into())); }
-    if b.starts_with(b"\x89PNG\r\n\x1a\n") { return Ok(("image".into(), "image/png".into())); }
-    if b.starts_with(b"\xff\xd8\xff") { return Ok(("image".into(), "image/jpeg".into())); }
-    if b.len() >= 12 && &b[0..4] == b"RIFF" && &b[8..12] == b"WEBP" { return Ok(("image".into(), "image/webp".into())); }
-    if b.starts_with(b"GIF87a") || b.starts_with(b"GIF89a") { return Ok(("image".into(), "image/gif".into())); }
-    if b.starts_with(b"BM") { return Ok(("image".into(), "image/bmp".into())); }
-    if b.len() >= 4 && (b.starts_with(b"II*\0") || b.starts_with(b"MM\0*")) { return Ok(("image".into(), "image/tiff".into())); }
-    let ext = extension(path);
-    if ext == "svg" { return Ok(("image".into(), "image/svg+xml".into())); }
-    if ["doc", "docx", "odt", "rtf", "txt", "md", "html"].contains(&ext.as_str()) { return Ok(("document".into(), "application/octet-stream".into())); }
-    if ["xls", "xlsx", "ods", "csv"].contains(&ext.as_str()) { return Ok(("spreadsheet".into(), "application/octet-stream".into())); }
-    if ["ppt", "pptx", "odp"].contains(&ext.as_str()) { return Ok(("presentation".into(), "application/octet-stream".into())); }
-    if ["mp3", "wav", "flac", "aac", "m4a", "ogg"].contains(&ext.as_str()) { return Ok(("audio".into(), "application/octet-stream".into())); }
-    if ["mp4", "mov", "avi", "mkv", "webm"].contains(&ext.as_str()) { return Ok(("video".into(), "application/octet-stream".into())); }
-    Ok(("unknown".into(), "application/octet-stream".into()))
-}
-
-#[tauri::command]
-fn inspect_file(path: String) -> Result<DetectedFile, String> {
-    let p = PathBuf::from(&path);
-    if !p.is_file() { return Err("Choose a regular file, not a folder or special file.".into()); }
-    let metadata = fs::metadata(&p).map_err(|e| format!("Cannot read file metadata: {e}"))?;
-    let (kind, mime) = sniff(&p)?;
-    let ext = extension(&p);
-    let actions = match kind.as_str() {
-        "image" => {
-            let mut a = vec![];
-            if mime != "image/png" { a.push("to-png".to_string()); }
-            if mime != "image/jpeg" { a.push("to-jpeg".to_string()); }
-            if mime != "image/webp" { a.push("to-webp".to_string()); }
-            a.push("compress-image".to_string());
-            a
-        },
-        "archive" if ext == "zip" || mime == "application/zip" => vec!["extract-zip".into(), "preview-zip".into()],
-        _ => vec![],
+    format: String,
+    quality: Option<u8>,
+) -> Result<OperationResult, String> {
+    let action_id = match format.to_ascii_lowercase().as_str() {
+        "png" => "to-png",
+        "jpg" | "jpeg" => "to-jpeg",
+        "webp" => "to-webp",
+        "bmp" => "to-bmp",
+        "tiff" => "to-tiff",
+        "pdf" => "to-pdf",
+        _ => return Err("Unsupported format".into()),
     };
-    Ok(DetectedFile { path, name: file_name(&p), extension: if ext.is_empty() { "unknown".into() } else { ext }, kind, mime, size: metadata.len(), actions })
-}
-
-#[tauri::command]
-fn convert_image(path: String, format: String, quality: Option<u8>) -> Result<OperationResult, String> {
-    let input = PathBuf::from(&path);
-    if !input.is_file() { return Err("The source file no longer exists.".into()); }
-    let output_format = match format.as_str() { "png" => image::ImageFormat::Png, "jpeg" | "jpg" => image::ImageFormat::Jpeg, "webp" => image::ImageFormat::WebP, _ => return Err("Unsupported image output format.".into()) };
-    let decoded = image::ImageReader::open(&input).map_err(|e| format!("Cannot open image: {e}"))?.with_guessed_format().map_err(|e| format!("Cannot identify image format: {e}"))?.decode().map_err(|e| format!("This image cannot be decoded by the bundled image engine: {e}"))?;
-    let ext = match format.as_str() { "jpg" => "jpg", "jpeg" => "jpg", other => other };
-    let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
-    let desired = input.with_file_name(format!("{stem}.{ext}"));
-    let output = unique_path(&desired);
-    let temp = output.with_file_name(format!(".orbit-{}-{}.tmp", std::process::id(), ext));
-    let write_result = if output_format == image::ImageFormat::Jpeg {
-        let rgb = decoded.to_rgb8();
-        let q = quality.unwrap_or(85).clamp(1, 100);
-        let mut writer = File::create(&temp).map_err(|e| format!("Cannot create output: {e}"))?;
-        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut writer, q);
-        encoder.write_image(rgb.as_raw(), rgb.width(), rgb.height(), image::ExtendedColorType::Rgb8).map_err(|e| format!("JPEG encoding failed: {e}"))?;
-        writer.flush().map_err(|e| format!("Cannot finish output: {e}"))
-    } else { decoded.save_with_format(&temp, output_format).map_err(|e| format!("Image conversion failed: {e}")) };
-    if let Err(e) = write_result { let _ = fs::remove_file(&temp); return Err(e.to_string()); }
-    if output.exists() { let _ = fs::remove_file(&temp); return Err("Output filename was taken while converting. Please try again.".into()); }
-    fs::rename(&temp, &output).map_err(|e| { let _ = fs::remove_file(&temp); format!("Could not safely save output: {e}") })?;
-    Ok(OperationResult { output_paths: vec![path_string(&output)], message: format!("Saved {} beside your original file.", file_name(&output)) })
-}
-
-fn open_zip(path: &Path) -> Result<ZipArchive<File>, String> {
-    let file = File::open(path).map_err(|e| format!("Cannot open archive: {e}"))?;
-    ZipArchive::new(file).map_err(|e| format!("This ZIP archive is invalid or unsupported: {e}"))
-}
-
-#[tauri::command]
-fn list_zip_contents(path: String) -> Result<Vec<String>, String> {
-    let p = PathBuf::from(path);
-    let mut archive = open_zip(&p)?;
-    if archive.len() > 10_000 { return Err("This archive has too many entries to preview safely (limit: 10,000).".into()); }
-    let mut result = Vec::with_capacity(archive.len());
-    for i in 0..archive.len() {
-        let entry = archive.by_index(i).map_err(|e| format!("Cannot read archive entry: {e}"))?;
-        result.push(entry.name().to_string());
-    }
-    Ok(result)
+    execute_action(ActionExecutionRequest {
+        path,
+        action_id: action_id.into(),
+        quality,
+        scale_percent: None,
+        target_width: None,
+        target_height: None,
+        bg_color: None,
+    })
 }
 
 #[tauri::command]
 fn extract_zip(path: String) -> Result<OperationResult, String> {
-    const MAX_ENTRIES: usize = 10_000;
-    const MAX_TOTAL_SIZE: u64 = 2 * 1024 * 1024 * 1024;
-    const MAX_SINGLE_SIZE: u64 = 512 * 1024 * 1024;
-    let input = PathBuf::from(&path);
-    let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("Archive");
-    let desired = input.with_file_name(stem);
-    let output_dir = unique_path(&desired);
-    fs::create_dir(&output_dir).map_err(|e| format!("Cannot create extraction folder: {e}"))?;
-    let result = (|| -> Result<(), String> {
-        let mut archive = open_zip(&input)?;
-        if archive.len() > MAX_ENTRIES { return Err(format!("Archive contains more than {MAX_ENTRIES} entries.")); }
-        let mut total = 0u64;
-        for i in 0..archive.len() {
-            let mut entry = archive.by_index(i).map_err(|e| format!("Archive entry {i} is damaged: {e}"))?;
-            if entry.is_symlink() { return Err("Extraction stopped because the archive contains a symbolic link.".into()); }
-            let safe_name = entry.enclosed_name().ok_or_else(|| format!("Unsafe path in archive: {}", entry.name()))?.to_path_buf();
-            if safe_name.as_os_str().is_empty() { continue; }
-            let size = entry.size();
-            if size > MAX_SINGLE_SIZE { return Err(format!("An archive item exceeds the {} MB per-file limit.", MAX_SINGLE_SIZE / (1024 * 1024))); }
-            total = total.checked_add(size).ok_or("Archive size overflow.")?;
-            if total > MAX_TOTAL_SIZE { return Err("Archive exceeds the 2 GB total extraction limit.".into()); }
-            let out_path = output_dir.join(safe_name);
-            if entry.is_dir() { fs::create_dir_all(&out_path).map_err(|e| format!("Cannot create folder: {e}"))?; continue; }
-            if let Some(parent) = out_path.parent() { fs::create_dir_all(parent).map_err(|e| format!("Cannot create output folder: {e}"))?; }
-            let mut target = OpenOptions::new().write(true).create_new(true).open(&out_path).map_err(|e| format!("Cannot safely create extracted file: {e}"))?;
-            io::copy(&mut entry, &mut target).map_err(|e| format!("Failed while extracting {}: {e}", out_path.display()))?;
-            target.flush().map_err(|e| format!("Could not finish extracted file: {e}"))?;
-        }
-        Ok(())
-    })();
-    if let Err(e) = result { let _ = fs::remove_dir_all(&output_dir); return Err(e); }
-    Ok(OperationResult { output_paths: vec![path_string(&output_dir)], message: format!("Extracted to {}.", file_name(&output_dir)) })
+    execute_action(ActionExecutionRequest {
+        path,
+        action_id: "extract-zip".into(),
+        quality: None,
+        scale_percent: None,
+        target_width: None,
+        target_height: None,
+        bg_color: None,
+    })
+}
+
+#[tauri::command]
+fn list_zip_entries(path: String) -> Result<Vec<String>, String> {
+    list_zip_contents(Path::new(&path))
 }
 
 #[tauri::command]
 fn reveal_in_finder(path: String) -> Result<(), String> {
     let p = PathBuf::from(path);
-    if !p.exists() { return Err("The output no longer exists.".into()); }
+    if !p.exists() {
+        return Err("The file no longer exists.".into());
+    }
     #[cfg(target_os = "macos")]
     let status = Command::new("open").arg("-R").arg(&p).status();
     #[cfg(target_os = "windows")]
-    let status = Command::new("explorer").arg(format!("/select,{}", p.display())).status();
+    let status = Command::new("explorer")
+        .arg(format!("/select,{}", p.display()))
+        .status();
     #[cfg(all(unix, not(target_os = "macos")))]
     let status = Command::new("xdg-open").arg(p.parent().unwrap_or(&p)).status();
-    status.map_err(|e| format!("Could not open the file location: {e}"))?.success().then_some(()).ok_or_else(|| "Could not open the file location.".to_string())
+
+    status
+        .map_err(|e| format!("Could not reveal file: {e}"))?
+        .success()
+        .then_some(())
+        .ok_or_else(|| "Could not open file location in Finder.".to_string())
+}
+
+#[tauri::command]
+fn close_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.close().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn toggle_always_on_top(window: tauri::WebviewWindow, enabled: bool) -> Result<bool, String> {
+    window.set_always_on_top(enabled).map_err(|e| e.to_string())?;
+    Ok(enabled)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![inspect_file, convert_image, list_zip_contents, extract_zip, reveal_in_finder])
+        .invoke_handler(tauri::generate_handler![
+            inspect_file,
+            execute_action,
+            convert_image,
+            extract_zip,
+            list_zip_entries,
+            reveal_in_finder,
+            close_window,
+            toggle_always_on_top
+        ])
         .run(tauri::generate_context!())
         .expect("error while running ORBIT");
 }
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use image::{Rgb, RgbImage};
+    use std::fs;
+
+    fn create_temp_test_image(ext: &str) -> PathBuf {
+        let mut img = RgbImage::new(100, 100);
+        for x in 0..100 {
+            for y in 0..100 {
+                img.put_pixel(x, y, Rgb([(x * 2) as u8, (y * 2) as u8, 128]));
+            }
+        }
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static TEST_COUNTER: AtomicU64 = AtomicU64::new(100);
+        let count = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temp_dir = std::env::temp_dir();
+        let filename = format!("orbit_test_{}_{}_{}.{}", std::process::id(), count, ext, ext);
+        let path = temp_dir.join(filename);
+        img.save(&path).expect("Failed to create test image");
+        path
+    }
+
+    #[test]
+    fn test_jpeg_to_png_conversion() {
+        let jpg_path = create_temp_test_image("jpg");
+        let req = ActionExecutionRequest {
+            path: jpg_path.to_string_lossy().to_string(),
+            action_id: "to-png".into(),
+            quality: None,
+            scale_percent: None,
+            target_width: None,
+            target_height: None,
+            bg_color: None,
+        };
+        let res = execute_action(req).expect("Failed to convert JPEG to PNG");
+        let out_path = PathBuf::from(&res.output_paths[0]);
+        assert!(out_path.exists());
+        assert_eq!(out_path.extension().unwrap(), "png");
+        let _ = fs::remove_file(jpg_path);
+        let _ = fs::remove_file(out_path);
+    }
+
+    #[test]
+    fn test_image_to_pdf_generation() {
+        let jpg_path = create_temp_test_image("jpg");
+        let req = ActionExecutionRequest {
+            path: jpg_path.to_string_lossy().to_string(),
+            action_id: "to-pdf".into(),
+            quality: None,
+            scale_percent: None,
+            target_width: None,
+            target_height: None,
+            bg_color: None,
+        };
+        let res = execute_action(req).expect("Failed to convert image to PDF");
+        let out_path = PathBuf::from(&res.output_paths[0]);
+        assert!(out_path.exists());
+        assert_eq!(out_path.extension().unwrap(), "pdf");
+
+        // Verify PDF magic header
+        let bytes = fs::read(&out_path).expect("Read PDF bytes");
+        assert!(bytes.starts_with(b"%PDF-1.4"));
+
+        let _ = fs::remove_file(jpg_path);
+        let _ = fs::remove_file(out_path);
+    }
+
+    #[test]
+    fn test_image_transform_rotate_and_grayscale() {
+        let png_path = create_temp_test_image("png");
+        let req = ActionExecutionRequest {
+            path: png_path.to_string_lossy().to_string(),
+            action_id: "to-grayscale".into(),
+            quality: None,
+            scale_percent: None,
+            target_width: None,
+            target_height: None,
+            bg_color: None,
+        };
+        let res = execute_action(req).expect("Failed to grayscale");
+        let out_path = PathBuf::from(&res.output_paths[0]);
+        assert!(out_path.exists());
+
+        let _ = fs::remove_file(png_path);
+        let _ = fs::remove_file(out_path);
+    }
+
+    #[test]
+    fn test_output_safety_no_overwrite() {
+        let jpg_path = create_temp_test_image("jpg");
+        let req = ActionExecutionRequest {
+            path: jpg_path.to_string_lossy().to_string(),
+            action_id: "to-png".into(),
+            quality: None,
+            scale_percent: None,
+            target_width: None,
+            target_height: None,
+            bg_color: None,
+        };
+        let res1 = execute_action(req.clone()).expect("First conversion");
+        let res2 = execute_action(req).expect("Second conversion should not overwrite");
+
+        assert_ne!(res1.output_paths[0], res2.output_paths[0]);
+        assert!(Path::new(&res1.output_paths[0]).exists());
+        assert!(Path::new(&res2.output_paths[0]).exists());
+
+        let _ = fs::remove_file(jpg_path);
+        let _ = fs::remove_file(&res1.output_paths[0]);
+        let _ = fs::remove_file(&res2.output_paths[0]);
+    }
+
+    #[test]
+    fn test_webp_conversion_and_transparency() {
+        use image::{Rgba, RgbaImage};
+        let mut img = RgbaImage::new(50, 50);
+        for x in 0..50 {
+            for y in 0..50 {
+                // Semi-transparent colored pixel
+                img.put_pixel(x, y, Rgba([200, 100, 50, 128]));
+            }
+        }
+        let temp_dir = std::env::temp_dir();
+        let png_path = temp_dir.join(format!("orbit_test_trans_{}.png", std::process::id()));
+        img.save(&png_path).expect("Save test transparent PNG");
+
+        // Convert PNG with alpha to JPEG (tests alpha flattening to white background)
+        let req_jpg = ActionExecutionRequest {
+            path: png_path.to_string_lossy().to_string(),
+            action_id: "to-jpeg".into(),
+            quality: Some(90),
+            scale_percent: None,
+            target_width: None,
+            target_height: None,
+            bg_color: Some("#ffffff".into()),
+        };
+        let res_jpg = execute_action(req_jpg).expect("Convert PNG with alpha to JPEG");
+        assert!(Path::new(&res_jpg.output_paths[0]).exists());
+
+        // Convert PNG with alpha to WebP
+        let req_webp = ActionExecutionRequest {
+            path: png_path.to_string_lossy().to_string(),
+            action_id: "to-webp".into(),
+            quality: None,
+            scale_percent: None,
+            target_width: None,
+            target_height: None,
+            bg_color: None,
+        };
+        let res_webp = execute_action(req_webp).expect("Convert PNG to WebP");
+        assert!(Path::new(&res_webp.output_paths[0]).exists());
+
+        let _ = fs::remove_file(png_path);
+        let _ = fs::remove_file(&res_jpg.output_paths[0]);
+        let _ = fs::remove_file(&res_webp.output_paths[0]);
+    }
+
+    #[test]
+    fn test_invalid_input_file_handling() {
+        let req = ActionExecutionRequest {
+            path: "/path/that/does/not/exist.jpg".into(),
+            action_id: "to-png".into(),
+            quality: None,
+            scale_percent: None,
+            target_width: None,
+            target_height: None,
+            bg_color: None,
+        };
+        let result = execute_action(req);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unsupported_action_handling() {
+        let jpg_path = create_temp_test_image("jpg");
+        let req = ActionExecutionRequest {
+            path: jpg_path.to_string_lossy().to_string(),
+            action_id: "unsupported-magic-action".into(),
+            quality: None,
+            scale_percent: None,
+            target_width: None,
+            target_height: None,
+            bg_color: None,
+        };
+        let result = execute_action(req);
+        assert!(result.is_err());
+        let _ = fs::remove_file(jpg_path);
+    }
+}
+
