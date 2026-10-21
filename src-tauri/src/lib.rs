@@ -135,7 +135,7 @@ fn execute_action(req: ActionExecutionRequest) -> Result<OperationResult, String
                 let p = Path::new(p_str);
                 let parent_dir = p.parent().unwrap_or_else(|| Path::new("."));
                 let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("document");
-                let page_outputs = pdf::pdf_to_images(p, parent_dir, stem, "jpg")?;
+                let page_outputs = pdf::pdf_to_images(p, parent_dir, stem, "jpeg")?;
                 for out_p in page_outputs {
                     all_outputs.push(path_string(&out_p));
                 }
@@ -244,13 +244,29 @@ fn execute_action(req: ActionExecutionRequest) -> Result<OperationResult, String
             let mut outputs = Vec::new();
             for p_str in &input_paths {
                 let p = Path::new(p_str);
-                let out = image_convert::convert_image_format(p, "png", None, None)?;
-                outputs.push(path_string(&out));
+                let is_pdf = p
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("pdf"))
+                    .unwrap_or(false)
+                    || metadata::sniff_format(p).map(|(k, _, _)| k == FileKind::Pdf).unwrap_or(false);
+
+                if is_pdf {
+                    let parent_dir = p.parent().unwrap_or_else(|| Path::new("."));
+                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("document");
+                    let page_outputs = pdf::pdf_to_images(p, parent_dir, stem, "png")?;
+                    for out_p in page_outputs {
+                        outputs.push(path_string(&out_p));
+                    }
+                } else {
+                    let out = image_convert::convert_image_format(p, "png", None, None)?;
+                    outputs.push(path_string(&out));
+                }
             }
             let msg = if outputs.len() == 1 {
                 format!("Saved {} as lossless PNG.", file_name(Path::new(&outputs[0])))
             } else {
-                format!("Converted {} images to PNG.", outputs.len())
+                format!("Converted {} file(s) to PNG.", outputs.len())
             };
             Ok(OperationResult {
                 output_paths: outputs,
@@ -263,18 +279,34 @@ fn execute_action(req: ActionExecutionRequest) -> Result<OperationResult, String
             let mut outputs = Vec::new();
             for p_str in &input_paths {
                 let p = Path::new(p_str);
-                let out = image_convert::convert_image_format(
-                    p,
-                    "jpg",
-                    req.quality,
-                    req.bg_color.as_deref(),
-                )?;
-                outputs.push(path_string(&out));
+                let is_pdf = p
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("pdf"))
+                    .unwrap_or(false)
+                    || metadata::sniff_format(p).map(|(k, _, _)| k == FileKind::Pdf).unwrap_or(false);
+
+                if is_pdf {
+                    let parent_dir = p.parent().unwrap_or_else(|| Path::new("."));
+                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("document");
+                    let page_outputs = pdf::pdf_to_images(p, parent_dir, stem, "jpeg")?;
+                    for out_p in page_outputs {
+                        outputs.push(path_string(&out_p));
+                    }
+                } else {
+                    let out = image_convert::convert_image_format(
+                        p,
+                        "jpg",
+                        req.quality,
+                        req.bg_color.as_deref(),
+                    )?;
+                    outputs.push(path_string(&out));
+                }
             }
             let msg = if outputs.len() == 1 {
                 format!("Saved {} as JPEG.", file_name(Path::new(&outputs[0])))
             } else {
-                format!("Converted {} images to JPEG.", outputs.len())
+                format!("Converted {} file(s) to JPEG.", outputs.len())
             };
             Ok(OperationResult {
                 output_paths: outputs,
@@ -768,8 +800,19 @@ mod integration_tests {
 
     #[test]
     fn test_combine_pdf_does_not_overwrite_existing() {
-        let img1 = create_temp_test_image("jpg");
-        let img2 = create_temp_test_image("png");
+        let test_dir = std::env::temp_dir().join(format!("orbit_test_no_overwrite_{}_{}", std::process::id(), TEST_COUNTER.fetch_add(1, Relaxed)));
+        let _ = fs::create_dir_all(&test_dir);
+
+        let img1 = test_dir.join("img1.jpg");
+        let img2 = test_dir.join("img2.png");
+        let mut raw_img = RgbImage::new(40, 40);
+        for x in 0..40 {
+            for y in 0..40 {
+                raw_img.put_pixel(x, y, Rgb([200, 100, 50]));
+            }
+        }
+        raw_img.save(&img1).unwrap();
+        raw_img.save(&img2).unwrap();
 
         let req = ActionExecutionRequest {
             path: None,
@@ -793,10 +836,7 @@ mod integration_tests {
         assert!(Path::new(&res2.output_paths[0]).exists());
         assert!(res2.output_paths[0].contains("(2)"));
 
-        let _ = fs::remove_file(img1);
-        let _ = fs::remove_file(img2);
-        let _ = fs::remove_file(&res1.output_paths[0]);
-        let _ = fs::remove_file(&res2.output_paths[0]);
+        let _ = fs::remove_dir_all(&test_dir);
     }
 
     #[test]
@@ -971,6 +1011,58 @@ mod integration_tests {
         let _ = fs::remove_file(png_img);
         let _ = fs::remove_file(pdf_path);
         for p in &res.output_paths {
+            let _ = fs::remove_file(p);
+        }
+    }
+
+    #[test]
+    fn test_pdf_to_jpeg_conversion() {
+        let png_img = create_temp_test_image("png");
+        let parent = png_img.parent().unwrap();
+        let pdf_path = parent.join(format!("test_conv_jpg_{}.pdf", TEST_COUNTER.fetch_add(1, Relaxed)));
+
+        // Create PDF from image
+        pdf::image_file_to_pdf(&png_img, &pdf_path).expect("generate source PDF");
+
+        // Execute pdf-to-jpeg
+        let req = ActionExecutionRequest {
+            path: Some(pdf_path.to_string_lossy().to_string()),
+            paths: None,
+            action_id: "pdf-to-jpeg".into(),
+            quality: None,
+            scale_percent: None,
+            target_width: None,
+            target_height: None,
+            bg_color: None,
+        };
+        let res = execute_action(req).expect("pdf-to-jpeg execution");
+        assert!(!res.output_paths.is_empty());
+        let out = Path::new(&res.output_paths[0]);
+        assert!(out.exists());
+        assert_eq!(out.extension().and_then(|s| s.to_str()), Some("jpg"));
+
+        // Also test executing "to-jpeg" on this PDF
+        let req2 = ActionExecutionRequest {
+            path: Some(pdf_path.to_string_lossy().to_string()),
+            paths: None,
+            action_id: "to-jpeg".into(),
+            quality: Some(90),
+            scale_percent: None,
+            target_width: None,
+            target_height: None,
+            bg_color: None,
+        };
+        let res2 = execute_action(req2).expect("to-jpeg with pdf input execution");
+        assert!(!res2.output_paths.is_empty());
+        let out2 = Path::new(&res2.output_paths[0]);
+        assert!(out2.exists());
+
+        let _ = fs::remove_file(png_img);
+        let _ = fs::remove_file(pdf_path);
+        for p in &res.output_paths {
+            let _ = fs::remove_file(p);
+        }
+        for p in &res2.output_paths {
             let _ = fs::remove_file(p);
         }
     }

@@ -25,7 +25,7 @@ pub fn path_string(path: &Path) -> String {
 
 pub fn sniff_format(path: &Path) -> Result<(FileKind, String, Option<String>), String> {
     let mut file = File::open(path).map_err(|e| format!("Cannot read file: {e}"))?;
-    let mut head = [0u8; 32];
+    let mut head = [0u8; 1024];
     let n = file.read(&mut head).map_err(|e| format!("Cannot inspect file: {e}"))?;
     let b = &head[..n];
 
@@ -48,7 +48,7 @@ pub fn sniff_format(path: &Path) -> Result<(FileKind, String, Option<String>), S
     if b.len() >= 4 && (b.starts_with(b"II*\0") || b.starts_with(b"MM\0*")) {
         return Ok((FileKind::Image, "image/tiff".into(), Some("TIFF".into())));
     }
-    if b.starts_with(b"%PDF-") {
+    if b.windows(5).any(|w| w == b"%PDF-") {
         return Ok((FileKind::Pdf, "application/pdf".into(), Some("PDF".into())));
     }
     if b.starts_with(b"PK\x03\x04") || b.starts_with(b"PK\x05\x06") || b.starts_with(b"PK\x07\x08") {
@@ -56,6 +56,9 @@ pub fn sniff_format(path: &Path) -> Result<(FileKind, String, Option<String>), S
     }
 
     let ext = extension(path);
+    if ext == "pdf" {
+        return Ok((FileKind::Pdf, "application/pdf".into(), Some("PDF".into())));
+    }
     if ext == "svg" {
         return Ok((FileKind::Image, "image/svg+xml".into(), Some("SVG".into())));
     }

@@ -505,16 +505,24 @@ pub fn pdf_to_images(
         return Err("PDF document contains no pages.".into());
     }
 
+    let fmt_lower = format.to_ascii_lowercase();
+    let (sips_format, file_ext) = match fmt_lower.as_str() {
+        "jpg" | "jpeg" => ("jpeg", "jpg"),
+        "png" => ("png", "png"),
+        "tiff" | "tif" => ("tiff", "tiff"),
+        other => (other, other),
+    };
+
     let mut outputs = Vec::new();
 
     if page_count == 1 {
-        let desired = output_dir.join(format!("{stem}.{format}"));
+        let desired = output_dir.join(format!("{stem}.{file_ext}"));
         let final_path = crate::output::unique_path(&desired);
 
         let status = std::process::Command::new("/usr/bin/sips")
             .arg("-s")
             .arg("format")
-            .arg(format)
+            .arg(sips_format)
             .arg(pdf_path)
             .arg("--out")
             .arg(&final_path)
@@ -537,13 +545,13 @@ pub fn pdf_to_images(
         let split_pdfs = pdf_split_pages(pdf_path, &temp_dir, "temp")?;
         for (idx, page_pdf) in split_pdfs.iter().enumerate() {
             let page_num = idx + 1;
-            let desired = output_dir.join(format!("{stem}_page_{page_num}.{format}"));
+            let desired = output_dir.join(format!("{stem}_page_{page_num}.{file_ext}"));
             let final_path = crate::output::unique_path(&desired);
 
             let status = std::process::Command::new("/usr/bin/sips")
                 .arg("-s")
                 .arg("format")
-                .arg(format)
+                .arg(sips_format)
                 .arg(page_pdf)
                 .arg("--out")
                 .arg(&final_path)

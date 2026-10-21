@@ -21,6 +21,49 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatHumanError(raw: string): { title: string; detail: string } {
+  if (!raw) {
+    return { title: 'Operation Notice', detail: 'Could not process the selected file.' };
+  }
+
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes('was not recognized as an image format') ||
+    lower.includes('cannot decode image')
+  ) {
+    return {
+      title: 'PDF Image Extraction',
+      detail:
+        'This PDF cannot be decoded directly as a raster image. Use the JPEG or PNG action to extract pages.',
+    };
+  }
+  if (lower.includes('sips conversion failed')) {
+    return {
+      title: 'Renderer Notice',
+      detail:
+        'macOS graphic system could not convert this file. Please verify the document is not password-protected.',
+    };
+  }
+  if (lower.includes('no pages') || lower.includes('failed to read pdf')) {
+    return {
+      title: 'PDF Notice',
+      detail: 'The PDF document appears empty, corrupted, or password-protected.',
+    };
+  }
+  if (lower.includes('does not exist') || lower.includes('no longer exists')) {
+    return {
+      title: 'File Not Found',
+      detail: 'The selected file could not be found. It may have been moved or deleted.',
+    };
+  }
+
+  const cleaned = raw.replace(/^Error:\s*/i, '').replace(/^Cannot \w+:\s*/i, '');
+  return {
+    title: 'Operation Notice',
+    detail: cleaned || raw,
+  };
+}
+
 export default function App() {
   const reduceMotion = useReducedMotion();
   const [selection, setSelection] = useState<SelectionMetadata | null>(null);
@@ -504,37 +547,49 @@ export default function App() {
       )}
 
       {/* Status & Information Area */}
-      <div className="status-area" aria-live="polite">
+      <div
+        className={`status-area ${stage === 'error' ? 'is-error' : ''} ${stage === 'done' ? 'is-done' : ''}`}
+        aria-live="polite"
+      >
         <motion.div
-          key={message}
+          key={stage === 'error' ? error : message}
           initial={{ opacity: 0, y: 3 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: reduceMotion ? 0 : 0.2 }}
         >
-          <h1 className="status-title">
-            {stage === 'done'
-              ? 'Complete'
-              : stage === 'working'
-                ? 'Processing…'
-                : stage === 'error'
-                  ? 'Error Occurred'
-                  : selection
-                    ? selection.summaryLabel
-                    : 'Drop anything here'}
-          </h1>
-          <p className="status-subtitle">
-            {stage === 'idle'
-              ? 'Offline · Private · Native macOS file processor'
-              : stage === 'ready'
-                ? selection?.isMulti
-                  ? `${selection.files.length} images · ${formatBytes(selection.totalSize)} · Drop order preserved`
-                  : `${selection?.files[0]?.formatName || selection?.files[0]?.extension.toUpperCase()} · ${selection ? formatBytes(selection.totalSize) : ''}${selection?.files[0]?.width && selection?.files[0]?.height ? ` · ${selection.files[0].width}×${selection.files[0].height}` : ''} · Choose an action`
-                : stage === 'working'
-                  ? 'Converting locally on your Mac…'
-                  : stage === 'done'
-                    ? (result?.message ?? 'Saved beside original files.')
-                    : error || 'Could not process this file.'}
-          </p>
+          {stage === 'error' ? (
+            <div className="status-error-content">
+              <div className="status-badge error-badge">
+                <span>⚠</span>
+                <span>Notice</span>
+              </div>
+              <h1 className="status-title error-title">{formatHumanError(error).title}</h1>
+              <p className="status-subtitle error-desc">{formatHumanError(error).detail}</p>
+            </div>
+          ) : (
+            <>
+              <h1 className="status-title">
+                {stage === 'done'
+                  ? 'Complete'
+                  : stage === 'working'
+                    ? 'Processing…'
+                    : selection
+                      ? selection.summaryLabel
+                      : 'Drop anything here'}
+              </h1>
+              <p className="status-subtitle">
+                {stage === 'idle'
+                  ? 'Offline · Private · Native macOS file processor'
+                  : stage === 'ready'
+                    ? selection?.isMulti
+                      ? `${selection.files.length} images · ${formatBytes(selection.totalSize)} · Drop order preserved`
+                      : `${selection?.files[0]?.formatName || selection?.files[0]?.extension.toUpperCase()} · ${selection ? formatBytes(selection.totalSize) : ''}${selection?.files[0]?.width && selection?.files[0]?.height ? ` · ${selection.files[0].width}×${selection.files[0].height}` : ''} · Choose an action`
+                    : stage === 'working'
+                      ? 'Converting locally on your Mac…'
+                      : (result?.message ?? 'Saved beside original files.')}
+              </p>
+            </>
+          )}
         </motion.div>
 
         {/* Action Buttons Row */}
@@ -581,9 +636,20 @@ export default function App() {
               <span>✕</span>
             </button>
           )}
-        </div>
 
-        {stage === 'error' && <p className="status-error">{error}</p>}
+          {stage === 'error' && (
+            <>
+              <button className="pill-action-btn primary-highlight" onClick={reset}>
+                <span>Try Again</span>
+                <span>↻</span>
+              </button>
+              <button className="pill-action-btn" onClick={() => void chooseFiles()}>
+                <span>Choose File</span>
+                <span>↗</span>
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Expandable Action Shelf / Palette */}
