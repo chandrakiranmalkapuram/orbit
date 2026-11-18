@@ -1,0 +1,58 @@
+name: Public macOS Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and publish ORBIT
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run Rust tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Type-check and build frontend
+        run: npm run build
+
+      - name: Build macOS application bundle
+        run: npm run tauri build
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            ## Install ORBIT
+
+            1. Download the macOS DMG below.
+            2. Open the DMG and move ORBIT to Applications.
+            3. On first launch, macOS may require Control-click → Open because this build is not signed or notarised with an Apple Developer ID.
+
+            ORBIT processes files locally. It does not upload your documents.
+          files: src-tauri/target/release/bundle/dmg/*.dmg
