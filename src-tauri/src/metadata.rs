@@ -60,7 +60,9 @@ pub fn sniff_format(path: &Path) -> Result<(FileKind, String, Option<String>), S
         return Ok((FileKind::Pdf, "application/pdf".into(), Some("PDF".into())));
     }
     if ext == "svg" {
-        return Ok((FileKind::Image, "image/svg+xml".into(), Some("SVG".into())));
+        // SVG is vector XML; the bundled image-rs engine only decodes raster
+        // formats. Keep the MIME identification but do not expose raster actions.
+        return Ok((FileKind::Unknown, "image/svg+xml".into(), Some("SVG".into())));
     }
     if ["doc", "docx", "odt", "rtf", "txt", "md", "html"].contains(&ext.as_str()) {
         return Ok((FileKind::Document, "application/octet-stream".into(), Some(ext.to_uppercase())));
@@ -124,4 +126,34 @@ pub fn inspect_file_properties(path_str: &str) -> Result<FileMetadata, String> {
         has_alpha,
         actions: vec![],
     })
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+    #[test]
+    fn svg_is_identified_without_being_advertised_as_a_raster_image() {
+        let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "orbit-svg-metadata-{}-{id}.svg",
+            std::process::id()
+        ));
+        fs::write(
+            &path,
+            br#"<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"></svg>"#,
+        )
+        .expect("write SVG fixture");
+
+        let (kind, mime, name) = sniff_format(&path).expect("inspect SVG");
+        assert_eq!(kind, FileKind::Unknown);
+        assert_eq!(mime, "image/svg+xml");
+        assert_eq!(name.as_deref(), Some("SVG"));
+
+        let _ = fs::remove_file(path);
+    }
 }
