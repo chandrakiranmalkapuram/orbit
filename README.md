@@ -44,6 +44,9 @@ It’s as easy as **1, 2, 3**:
 - **Safe Unzip**: Extract zip files with one click.
 - **Peek Inside**: Preview what’s inside an archive before unpacking it.
 
+### Supported-format note
+- SVG files are identified, but SVG rasterisation and conversion are not yet supported by the bundled processing engine. ORBIT will not offer raster conversion actions for SVG files.
+
 ---
 
 ## 🔒 Private & Offline by Design

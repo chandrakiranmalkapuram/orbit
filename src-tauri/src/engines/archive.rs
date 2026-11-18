@@ -1,7 +1,7 @@
 use crate::output::unique_path;
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
 };
 use zip::ZipArchive;
@@ -50,7 +50,8 @@ pub fn extract_zip_safe(input_path: &Path) -> Result<PathBuf, String> {
             ));
         }
 
-        let mut total_uncompressed = 0u64;
+        let mut declared_total = 0u64;
+        let mut actual_total = 0u64;
 
         for i in 0..archive.len() {
             let mut entry = archive
@@ -82,11 +83,11 @@ pub fn extract_zip_safe(input_path: &Path) -> Result<PathBuf, String> {
                 ));
             }
 
-            total_uncompressed = total_uncompressed
+            declared_total = declared_total
                 .checked_add(size)
                 .ok_or_else(|| "Archive size overflow occurred.".to_string())?;
 
-            if total_uncompressed > MAX_TOTAL_SIZE {
+            if declared_total > MAX_TOTAL_SIZE {
                 return Err(format!(
                     "Archive exceeds the maximum {} GB extraction limit.",
                     MAX_TOTAL_SIZE / (1024 * 1024 * 1024)
@@ -112,8 +113,31 @@ pub fn extract_zip_safe(input_path: &Path) -> Result<PathBuf, String> {
                 .open(&out_path)
                 .map_err(|e| format!("Cannot safely create extracted file {}: {e}", out_path.display()))?;
 
-            io::copy(&mut entry, &mut target)
+            // Enforce limits against bytes actually decompressed, not only
+            // sizes declared in the ZIP central directory. Read at most one
+            // byte beyond the per-entry limit so dishonest metadata cannot
+            // turn extraction into an unbounded decompression operation.
+            let written = io::copy(&mut entry.by_ref().take(MAX_SINGLE_SIZE + 1), &mut target)
                 .map_err(|e| format!("Failed extracting {}: {e}", out_path.display()))?;
+
+            if written > MAX_SINGLE_SIZE {
+                return Err(format!(
+                    "Archive item {} exceeds the {} MB extraction limit.",
+                    out_path.display(),
+                    MAX_SINGLE_SIZE / (1024 * 1024)
+                ));
+            }
+
+            actual_total = actual_total
+                .checked_add(written)
+                .ok_or_else(|| "Extracted size overflow occurred.".to_string())?;
+            if actual_total > MAX_TOTAL_SIZE {
+                return Err(format!(
+                    "Archive exceeds the maximum {} GB extraction limit.",
+                    MAX_TOTAL_SIZE / (1024 * 1024 * 1024)
+                ));
+            }
+
             target
                 .flush()
                 .map_err(|e| format!("Could not finish extracted file: {e}"))?;
