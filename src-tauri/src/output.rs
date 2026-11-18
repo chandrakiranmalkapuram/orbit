@@ -114,6 +114,7 @@ impl Drop for AtomicOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
